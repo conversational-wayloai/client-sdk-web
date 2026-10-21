@@ -1,0 +1,5 @@
+overrides:
+  livekit-client: 2.22.3
+
+allowBuilds:
+  esbuild: true

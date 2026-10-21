@@ -1,0 +1,4 @@
+{
+  "*.{ts,js,mjs}": ["eslint --cache --fix"],
+  "*.{yml,json,css,md,html}": ["prettier --ignore-path ../.prettierignore --write"]
+}

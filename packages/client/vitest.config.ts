@@ -10,6 +10,7 @@ export default defineConfig({
     },
     environment: 'jsdom',
     include: ['test/**/*.spec.ts'],
+    setupFiles: ['test/__setup__/livekit-mock.ts'],
     typecheck: {
       enabled: true,
       include: ['test/**/*.spec-d.ts'],

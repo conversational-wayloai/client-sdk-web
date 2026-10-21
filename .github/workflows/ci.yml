@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    # Same runner switch as the application repo: the CI_RUNNER org variable picks the self-hosted
+    # label, and leaving it unset falls back to hosted runners.
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - run: pnpm pack:client
+
+      # Ahead of `validate`: lint:example resolves `@waylovoice/client` from the installed tarball.
+      # The example lockfile pins the tarball's hash, which changes with every SDK change.
+      - run: pnpm install:example --no-frozen-lockfile
+
+      - run: pnpm validate
+
+      # `lint` and `lint:example` run eslint --fix, so they can pass by rewriting files. Fail if they did.
+      - run: git diff --exit-code
+
+      # The example consumes the packed tarball, so these prove its `exports` and declarations
+      # work for a real install.
+      - run: pnpm typecheck:example
+
+      - run: pnpm build:example

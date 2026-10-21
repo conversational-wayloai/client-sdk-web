@@ -1,0 +1,4 @@
+{
+  "*.ts": ["eslint --cache --fix", "vitest related --run --passWithNoTests"],
+  "*.{yml,json,css,md}": ["prettier --ignore-path ../../.prettierignore --write"]
+}

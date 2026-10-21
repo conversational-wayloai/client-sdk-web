@@ -1,0 +1,19 @@
+packages:
+  - packages/*
+
+catalog:
+  '@gilbarbara/eslint-config': ^1.2.3
+  '@vitest/coverage-v8': ^4.1.11
+  eslint: ^9.39.5
+  prettier: ^3.9.9
+  typescript: ^6.0.3
+  vitest: ^4.1.11
+
+overrides:
+  livekit-client: 2.22.3
+
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true
+
+minimumReleaseAgeStrict: true

@@ -1,0 +1,29 @@
+{
+  "name": "client-sdk-web",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@gilbarbara/eslint-config": "catalog:",
+    "eslint": "catalog:",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
+    "prettier": "catalog:",
+    "repo-tools": "^0.3.1",
+    "typescript": "catalog:"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:coverage": "pnpm -r test:coverage",
+    "prepare": "husky",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "format": "prettier --write --log-level=warn \"**/*.{yml,json,md,css,html}\"",
+    "format:check": "prettier --check --log-level=warn \"**/*.{yml,json,md,css,html}\"",
+    "validate": "pnpm format:check && pnpm -r validate"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.22.0+sha512.1ff870c4c6133dfd88fb2afc46dd13d47f09c9794b438c6fdb47ca98caf3bc16381ee0be93a091b8e3824cf01f889f46d7d9e20910fb0be1ab0fb5baa80dd621"
+}

@@ -1,5 +1,6 @@
 import { type RemoteParticipant, type Room, RoomEvent } from 'livekit-client';
 
+import { abortable } from './abortable.js';
 import { WayloVoiceError } from './errors.js';
 
 function findAgent(room: Room): RemoteParticipant | undefined {
@@ -10,7 +11,12 @@ function findAgent(room: Room): RemoteParticipant | undefined {
   return undefined;
 }
 
-export async function waitForAgent(room: Room, timeoutMs: number): Promise<RemoteParticipant> {
+export async function waitForAgent(
+  room: Room,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<RemoteParticipant> {
+  signal.throwIfAborted();
   const present = findAgent(room);
 
   if (present) return present;
@@ -33,7 +39,7 @@ export async function waitForAgent(room: Room, timeoutMs: number): Promise<Remot
   });
 
   try {
-    return await joined;
+    return await abortable(joined, signal);
   } finally {
     stopWaiting();
   }

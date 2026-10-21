@@ -14,6 +14,7 @@ describe('public API', () => {
     expectTypeOf<keyof typeof PublicApi>().toEqualTypeOf<'WayloVoice' | 'WayloVoiceError'>();
     expectTypeOf<typeof PublicApi>().not.toHaveProperty('inspectCall');
     expectTypeOf<typeof PublicApi>().not.toHaveProperty('RemoteAudio');
+    expectTypeOf<typeof PublicApi>().not.toHaveProperty('decideDisconnect');
     expectTypeOf<typeof PublicApi>().not.toHaveProperty('WAYLO_VOICE_ERROR_CODES');
   });
 

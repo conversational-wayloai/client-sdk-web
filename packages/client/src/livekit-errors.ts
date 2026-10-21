@@ -46,6 +46,14 @@ function toDebugCause(error: ConnectionError): unknown {
   };
 }
 
+export function disconnectCause(message: string, reason: DisconnectReason | undefined): Error {
+  const cause = new Error(message);
+
+  return reason === undefined
+    ? cause
+    : Object.assign(cause, { disconnectReason: DisconnectReason[reason] });
+}
+
 export function toConnectError(error: unknown, secrets: readonly string[]): WayloVoiceError {
   if (error instanceof WayloVoiceError) return error;
   if (!isConnectionError(error)) return new WayloVoiceError('connection_failed', error, secrets);

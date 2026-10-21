@@ -2,15 +2,47 @@ import { describe, expectTypeOf, it } from 'vitest';
 
 import type * as PublicApi from '../src/index.js';
 import {
+  WayloVoice,
   WayloVoiceError,
   type WayloVoiceErrorCode,
+  type WayloVoiceOptions,
   type WebSessionBootstrap,
 } from '../src/index.js';
 
 describe('public API', () => {
   it('exports only the public surface', () => {
-    expectTypeOf<keyof typeof PublicApi>().toEqualTypeOf<'WayloVoiceError'>();
+    expectTypeOf<keyof typeof PublicApi>().toEqualTypeOf<'WayloVoice' | 'WayloVoiceError'>();
+    expectTypeOf<typeof PublicApi>().not.toHaveProperty('inspectCall');
+    expectTypeOf<typeof PublicApi>().not.toHaveProperty('RemoteAudio');
     expectTypeOf<typeof PublicApi>().not.toHaveProperty('WAYLO_VOICE_ERROR_CODES');
+  });
+
+  it('WayloVoice is constructed with optional options', () => {
+    expectTypeOf(WayloVoice).constructorParameters.toEqualTypeOf<
+      [options?: WayloVoiceOptions | undefined]
+    >();
+    expectTypeOf(WayloVoice).toBeConstructibleWith();
+    expectTypeOf(WayloVoice).toBeConstructibleWith({ agentTimeoutMs: 5000 });
+  });
+
+  it('WayloVoice exposes no static test helpers', () => {
+    expectTypeOf(WayloVoice).not.toHaveProperty('stateOf');
+    expectTypeOf(WayloVoice).not.toHaveProperty('errorOf');
+    expectTypeOf(WayloVoice).not.toHaveProperty('onState');
+    expectTypeOf(WayloVoice).not.toHaveProperty('inspectCall');
+  });
+
+  it('WayloVoice has start and stop only', () => {
+    expectTypeOf<keyof WayloVoice>().toEqualTypeOf<'start' | 'stop'>();
+    expectTypeOf<WayloVoice['start']>().parameters.toEqualTypeOf<[WebSessionBootstrap]>();
+    expectTypeOf<WayloVoice['start']>().returns.toEqualTypeOf<Promise<void>>();
+    expectTypeOf<WayloVoice['stop']>().parameters.toEqualTypeOf<[]>();
+    expectTypeOf<WayloVoice['stop']>().returns.toEqualTypeOf<Promise<void>>();
+    expectTypeOf<WayloVoice>().not.toHaveProperty('dispose');
+  });
+
+  it('WayloVoiceOptions has an optional agentTimeoutMs', () => {
+    expectTypeOf<WayloVoiceOptions>().toEqualTypeOf<{ agentTimeoutMs?: number }>();
   });
 
   it('WayloVoiceError is an Error with a readonly code', () => {

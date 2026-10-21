@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Waylo voice example</title>
+    <style>
+      body {
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+        max-width: 32rem;
+        margin: 3rem auto;
+        padding: 0 1rem;
+      }
+      button {
+        font: inherit;
+        padding: 0.5rem 1.25rem;
+        margin-right: 0.5rem;
+      }
+      #status,
+      #error {
+        margin-top: 1.5rem;
+      }
+      #error {
+        color: #b00020;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Waylo voice example</h1>
+      <p>Click Talk, allow the microphone, and wait for the assistant's greeting.</p>
+      <button id="talk" type="button">Talk</button>
+      <button id="hang-up" type="button" disabled>Hang up</button>
+      <p id="status" role="status">Status: idle</p>
+      <p id="error" role="alert" hidden></p>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

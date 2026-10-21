@@ -17,10 +17,16 @@
     "test:coverage": "pnpm -r test:coverage",
     "prepare": "husky",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint",
+    "lint": "pnpm -r lint && pnpm lint:example",
     "format": "prettier --write --log-level=warn \"**/*.{yml,json,md,css,html}\"",
     "format:check": "prettier --check --log-level=warn \"**/*.{yml,json,md,css,html}\"",
-    "validate": "pnpm format:check && pnpm -r validate"
+    "validate": "pnpm format:check && pnpm -r validate && pnpm lint:example",
+    "pack:client": "pnpm --dir packages/client pack",
+    "install:example": "pnpm --dir example install",
+    "build:example": "pnpm --dir example build",
+    "dev:example": "pnpm --dir example dev",
+    "lint:example": "cd example && eslint --cache --fix .",
+    "typecheck:example": "pnpm --dir example typecheck"
   },
   "engines": {
     "node": ">=24"

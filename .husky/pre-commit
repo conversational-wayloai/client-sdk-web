@@ -1,0 +1,1 @@
+./node_modules/.bin/repo-tools check-remote && pnpm typecheck && ./node_modules/.bin/lint-staged

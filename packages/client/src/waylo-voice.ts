@@ -1,4 +1,7 @@
 import {
+  ConnectionState,
+  type DisconnectReason,
+  type RemoteParticipant,
   Room,
   type RoomConnectOptions,
   RoomEvent,
@@ -6,14 +9,24 @@ import {
   Track,
 } from 'livekit-client';
 
+import { abortable } from './abortable.js';
 import { waitForAgent } from './agent.js';
 import { Emitter } from './emitter.js';
 import { WayloVoiceError } from './errors.js';
-import { toConnectError, toMicrophoneError, toWayloVoiceError } from './livekit-errors.js';
+import {
+  disconnectCause,
+  toConnectError,
+  toMicrophoneError,
+  toWayloVoiceError,
+} from './livekit-errors.js';
 import { RemoteAudio } from './remote-audio.js';
+import {
+  type CallState,
+  decideAgentLeft,
+  decideDisconnect,
+  readSessionOutcome,
+} from './session-outcome.js';
 import { isSessionExpired, requireSession, type WebSessionBootstrap } from './session.js';
-
-type CallState = 'active' | 'failed' | 'idle' | 'starting' | 'stopped' | 'stopping';
 
 interface CallEvents extends Record<string, unknown> {
   state: CallState;
@@ -31,6 +44,8 @@ export interface WayloVoiceOptions {
 }
 
 const DEFAULT_AGENT_TIMEOUT_MS = 20_000;
+const AGENT_LEFT = 'Agent left the room unexpectedly.';
+const ROOM_DISCONNECTED = 'Room disconnected.';
 
 let inspectInternals: (call: WayloVoice) => CallInspection;
 
@@ -58,6 +73,10 @@ export class WayloVoice {
   #state: CallState = 'idle';
   #error: WayloVoiceError | undefined;
   #room: Room | undefined;
+  #agent: RemoteParticipant | undefined;
+  #isConnected = false;
+  #startAbort: AbortController | undefined;
+  #startSettled: Promise<void> | undefined;
   #stopPromise: Promise<void> | undefined;
   #releasePromise: Promise<void> | undefined;
 
@@ -74,24 +93,34 @@ export class WayloVoice {
   start(session: WebSessionBootstrap): Promise<void> {
     if (this.#state !== 'idle') return Promise.reject(new WayloVoiceError('already_started'));
     this.#setState('starting');
+    const started = this.#startCall(session);
 
-    return this.#startCall(session);
+    // stop() only waits for start() to settle; the caller of start() gets the rejection.
+    this.#startSettled = started.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    return started;
   }
 
-  /** Hangs up an active call and releases the room, microphone and audio elements. */
+  /** Hangs up and releases the room, microphone and audio elements. Safe to call at any time. */
   async stop(): Promise<void> {
     await this.#stopOnce();
     this.#room = undefined;
+    this.#agent = undefined;
   }
 
   #stopOnce(): Promise<void> {
     if (this.#stopPromise) return this.#stopPromise;
 
-    if (this.#state !== 'active') return this.#releasePromise ?? Promise.resolve();
+    if (!this.#isLive()) return this.#releasePromise ?? Promise.resolve();
 
     this.#stopPromise = (async () => {
+      this.#startAbort?.abort(new WayloVoiceError('cancelled'));
       this.#setState('stopping');
       await this.#releaseRoom();
+      await this.#startSettled;
       this.#setState('stopped');
     })();
 
@@ -99,7 +128,11 @@ export class WayloVoice {
   }
 
   async #startCall(input: WebSessionBootstrap): Promise<void> {
+    const startAbort = new AbortController();
+    const { signal } = startAbort;
     let secrets: string[] = [];
+
+    this.#startAbort = startAbort;
 
     try {
       const session = requireSession(input);
@@ -115,24 +148,32 @@ export class WayloVoice {
       room.startAudio().catch(() => undefined);
       this.#listenToRoom(room);
 
-      await this.#connect(room, session, secrets);
-      await this.#enableMicrophone(room, secrets);
+      await this.#connect(room, session, signal, secrets);
+      this.#isConnected = true;
+      signal.throwIfAborted();
+
+      await this.#enableMicrophone(room, signal, secrets);
+      signal.throwIfAborted();
 
       this.#attachSubscribedAudio(room);
-      await waitForAgent(room, this.#agentTimeoutMs);
+      this.#agent = await waitForAgent(room, this.#agentTimeoutMs, signal);
+      signal.throwIfAborted();
 
       this.#setState('active');
     } catch (error) {
-      const failure = toWayloVoiceError(error, secrets);
+      const { reason } = signal;
+      const isCancelled = reason instanceof WayloVoiceError && reason.code === 'cancelled';
+      const failure = isCancelled ? reason : toWayloVoiceError(error, secrets);
 
-      await this.#fail(failure);
+      if (!isCancelled) await this.#fail(failure);
       throw failure;
     }
   }
 
-  async #connect(
+  #connect(
     room: Room,
     session: WebSessionBootstrap,
+    signal: AbortSignal,
     secrets: readonly string[],
   ): Promise<void> {
     // LiveKit advertises no relay here; the issued TURN is the only path through symmetric NAT.
@@ -140,19 +181,29 @@ export class WayloVoice {
       ? { rtcConfig: { iceServers: [session.turn], iceTransportPolicy: 'relay' } }
       : {};
 
-    try {
-      await room.connect(session.livekitUrl, session.participantToken, options);
-    } catch (error) {
-      throw toConnectError(error, secrets);
-    }
+    return abortableStep(
+      room.connect(session.livekitUrl, session.participantToken, options),
+      signal,
+      error => toConnectError(error, secrets),
+    );
   }
 
-  async #enableMicrophone(room: Room, secrets: readonly string[]): Promise<void> {
-    try {
-      await room.localParticipant.setMicrophoneEnabled(true);
-    } catch (error) {
-      throw toMicrophoneError(error, secrets);
-    }
+  async #enableMicrophone(
+    room: Room,
+    signal: AbortSignal,
+    secrets: readonly string[],
+  ): Promise<void> {
+    const enabling = room.localParticipant.setMicrophoneEnabled(true);
+
+    // A cancelled start stops waiting, but getUserMedia still finishes later; stop that track so
+    // the browser's mic indicator turns off.
+    enabling
+      .then(publication => {
+        if (signal.aborted) publication?.track?.stop();
+      })
+      .catch(() => undefined);
+
+    await abortableStep(enabling, signal, error => toMicrophoneError(error, secrets));
   }
 
   #attachSubscribedAudio(room: Room): void {
@@ -170,6 +221,15 @@ export class WayloVoice {
     this.#addRoomListener(room, RoomEvent.TrackUnsubscribed, track => {
       this.#audio.detach(track);
     });
+    this.#addRoomListener(room, RoomEvent.ParticipantDisconnected, (participant, reason) => {
+      if (participant.identity !== this.#agent?.identity) return;
+      // A full reconnect also reports every participant as disconnected, then switches the room
+      // to reconnecting in the same tick. Looking one microtask later tells the two apart.
+      queueMicrotask(() => this.#onAgentLeft(room, participant, reason));
+    });
+    this.#addRoomListener(room, RoomEvent.Disconnected, reason => {
+      this.#onDisconnected(reason);
+    });
   }
 
   #addRoomListener<E extends keyof RoomEventCallbacks>(
@@ -179,6 +239,47 @@ export class WayloVoice {
   ): void {
     room.on(event, handler);
     this.#roomListenerRemovers.push(() => room.off(event, handler));
+  }
+
+  #onAgentLeft(room: Room, agent: RemoteParticipant, reason: DisconnectReason | undefined): void {
+    if (this.#state !== 'active' || room.state !== ConnectionState.Connected) return;
+
+    if (decideAgentLeft(readSessionOutcome(agent.attributes)) === 'end') {
+      this.#end();
+    } else {
+      this.#fail(new WayloVoiceError('agent_left', disconnectCause(AGENT_LEFT, reason)));
+    }
+  }
+
+  #onDisconnected(reason: DisconnectReason | undefined): void {
+    const decision = decideDisconnect({
+      isConnected: this.#isConnected,
+      outcome: readSessionOutcome(this.#agent?.attributes),
+      reason,
+      state: this.#state,
+    });
+    const failure = () =>
+      new WayloVoiceError('connection_failed', disconnectCause(ROOM_DISCONNECTED, reason));
+
+    switch (decision) {
+      case 'abort_start':
+        this.#startAbort?.abort(failure());
+        break;
+      case 'end':
+        this.#end();
+        break;
+      case 'fail':
+        this.#fail(failure());
+        break;
+      case 'ignore':
+        break;
+      // no default
+    }
+  }
+
+  #end(): void {
+    this.#setState('ended');
+    this.#releaseRoom();
   }
 
   async #fail(error: WayloVoiceError): Promise<void> {
@@ -213,6 +314,18 @@ export class WayloVoice {
     if (this.#state === state) return;
     this.#state = state;
     this.#emitter.emit('state', state);
+  }
+}
+
+async function abortableStep<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  toError: (error: unknown) => WayloVoiceError,
+): Promise<T> {
+  try {
+    return await abortable(promise, signal);
+  } catch (error) {
+    throw signal.aborted ? signal.reason : toError(error);
   }
 }
 

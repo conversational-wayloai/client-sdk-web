@@ -76,6 +76,19 @@ describe('WayloVoice', () => {
       expect(inspectCall(call).state).toBe('stopped');
     });
 
+    it('rejects with already_started after the call ended', async () => {
+      const call = new WayloVoice();
+
+      await call.start(webSessionBootstrap());
+      lastRoom().serverDisconnect();
+      expect(inspectCall(call).state).toBe('ended');
+      await expect(errorCodeFrom(call.start(webSessionBootstrap()))).resolves.toBe(
+        'already_started',
+      );
+      await call.stop();
+      expect(inspectCall(call).state).toBe('ended');
+    });
+
     it('rejects with already_started after start() failed', async () => {
       const call = new WayloVoice();
 

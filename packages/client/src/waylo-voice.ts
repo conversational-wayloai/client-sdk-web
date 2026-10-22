@@ -39,7 +39,7 @@ interface CallInspection {
 }
 
 export interface WayloVoiceOptions {
-  /** How long `start()` waits for the agent to join before failing with `agent_timeout`. Default 20 s. */
+  /** How long `start()` waits for the agent to join before failing with `AGENT_TIMEOUT`. Default 20 s. */
   agentTimeoutMs?: number;
 }
 
@@ -88,10 +88,10 @@ export class WayloVoice {
   /**
    * Connects to the room, turns on the microphone and resolves once the agent has joined.
    * Call it from a click handler so the browser lets the agent's audio play. Rejects with a
-   * `WayloVoiceError`; a second call rejects with `already_started`.
+   * `WayloVoiceError`; a second call rejects with `ALREADY_STARTED`.
    */
   start(session: WebSessionBootstrap): Promise<void> {
-    if (this.#state !== 'idle') return Promise.reject(new WayloVoiceError('already_started'));
+    if (this.#state !== 'idle') return Promise.reject(new WayloVoiceError('ALREADY_STARTED'));
     this.#setState('starting');
     const started = this.#startCall(session);
 
@@ -117,7 +117,7 @@ export class WayloVoice {
     if (!this.#isLive()) return this.#releasePromise ?? Promise.resolve();
 
     this.#stopPromise = (async () => {
-      this.#startAbort?.abort(new WayloVoiceError('cancelled'));
+      this.#startAbort?.abort(new WayloVoiceError('CANCELLED'));
       this.#setState('stopping');
       await this.#releaseRoom();
       await this.#startSettled;
@@ -138,7 +138,7 @@ export class WayloVoice {
       const session = requireSession(input);
 
       secrets = secretsFrom(session);
-      if (isSessionExpired(session)) throw new WayloVoiceError('session_expired');
+      if (isSessionExpired(session)) throw new WayloVoiceError('SESSION_EXPIRED');
 
       // Audio-only call: adaptive stream and dynacast only manage video layers.
       const room = new Room({ adaptiveStream: false, dynacast: false });
@@ -162,7 +162,7 @@ export class WayloVoice {
       this.#setState('active');
     } catch (error) {
       const { reason } = signal;
-      const isCancelled = reason instanceof WayloVoiceError && reason.code === 'cancelled';
+      const isCancelled = reason instanceof WayloVoiceError && reason.code === 'CANCELLED';
       const failure = isCancelled ? reason : toWayloVoiceError(error, secrets);
 
       if (!isCancelled) await this.#fail(failure);
@@ -247,7 +247,7 @@ export class WayloVoice {
     if (decideAgentLeft(readSessionOutcome(agent.attributes)) === 'end') {
       this.#end();
     } else {
-      this.#fail(new WayloVoiceError('agent_left', disconnectCause(AGENT_LEFT, reason)));
+      this.#fail(new WayloVoiceError('AGENT_LEFT', disconnectCause(AGENT_LEFT, reason)));
     }
   }
 
@@ -259,7 +259,7 @@ export class WayloVoice {
       state: this.#state,
     });
     const failure = () =>
-      new WayloVoiceError('connection_failed', disconnectCause(ROOM_DISCONNECTED, reason));
+      new WayloVoiceError('CONNECTION_FAILED', disconnectCause(ROOM_DISCONNECTED, reason));
 
     switch (decision) {
       case 'abort_start':

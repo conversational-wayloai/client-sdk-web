@@ -32,13 +32,13 @@ async function expectCleanedUp(room: FakeRoom) {
 describe('WayloVoice', () => {
   describe('room disconnected while active', () => {
     it.each([...ERROR_DISCONNECT_REASONS].map(reason => [DisconnectReason[reason], reason]))(
-      'fails with connection_failed on %s',
+      'fails with CONNECTION_FAILED on %s',
       async (name, reason) => {
         const { call, room } = await activeCall();
 
         room.serverDisconnect(reason);
         expect(inspectCall(call).state).toBe('failed');
-        expect(inspectCall(call).error?.code).toBe('connection_failed');
+        expect(inspectCall(call).error?.code).toBe('CONNECTION_FAILED');
         expect(inspectCall(call).error?.cause).toMatchObject({ disconnectReason: name });
         await expectCleanedUp(room);
       },
@@ -96,13 +96,13 @@ describe('WayloVoice', () => {
   });
 
   describe('agent left while active', () => {
-    it('fails with agent_left when the agent leaves without a verdict', async () => {
+    it('fails with AGENT_LEFT when the agent leaves without a verdict', async () => {
       const { call, room } = await activeCall();
 
       room.removeParticipant('agent', DisconnectReason.CLIENT_INITIATED);
       await flush();
       expect(inspectCall(call).state).toBe('failed');
-      expect(inspectCall(call).error?.code).toBe('agent_left');
+      expect(inspectCall(call).error?.code).toBe('AGENT_LEFT');
       expect(inspectCall(call).error?.cause).toMatchObject({
         disconnectReason: 'CLIENT_INITIATED',
         message: 'Agent left the room unexpectedly.',
@@ -110,14 +110,14 @@ describe('WayloVoice', () => {
       await expectCleanedUp(room);
     });
 
-    it('fails with agent_left when the agent leaves after session_status=failed', async () => {
+    it('fails with AGENT_LEFT when the agent leaves after session_status=failed', async () => {
       const { agent, call, room } = await activeCall();
 
       agent.attributes = { session_status: 'failed' };
       room.removeParticipant('agent');
       await flush();
       expect(inspectCall(call).state).toBe('failed');
-      expect(inspectCall(call).error?.code).toBe('agent_left');
+      expect(inspectCall(call).error?.code).toBe('AGENT_LEFT');
       await expectCleanedUp(room);
     });
 
@@ -162,7 +162,7 @@ describe('WayloVoice', () => {
   });
 
   describe('room disconnected while starting', () => {
-    it('fails with connection_failed after connect, while waiting for the agent', async () => {
+    it('fails with CONNECTION_FAILED after connect, while waiting for the agent', async () => {
       behavior.agent = 'later';
       const call = new WayloVoice();
       const started = call.start(webSessionBootstrap());
@@ -171,7 +171,7 @@ describe('WayloVoice', () => {
       lastRoom().serverDisconnect(DisconnectReason.SERVER_SHUTDOWN);
       const error = await wayloVoiceErrorFrom(started);
 
-      expect(error.code).toBe('connection_failed');
+      expect(error.code).toBe('CONNECTION_FAILED');
       expect(inspectCall(call).state).toBe('failed');
       await expectCleanedUp(lastRoom());
     });

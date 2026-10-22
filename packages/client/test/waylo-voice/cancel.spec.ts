@@ -11,7 +11,7 @@ async function expectCancelledAndClean(call: WayloVoice, started: Promise<void>)
 
   inspectCall(call).onState(state => states.push(state));
   await call.stop();
-  await expect(errorCodeFrom(started)).resolves.toBe('cancelled');
+  await expect(errorCodeFrom(started)).resolves.toBe('CANCELLED');
   await flush();
   const room = lastRoom();
 
@@ -88,7 +88,7 @@ describe('WayloVoice', () => {
       await flush();
       await call.stop();
       gate.reject(new DOMException('denied', 'NotAllowedError'));
-      await expect(errorCodeFrom(started)).resolves.toBe('cancelled');
+      await expect(errorCodeFrom(started)).resolves.toBe('CANCELLED');
     });
 
     it('cancels while waiting for the agent', async () => {
@@ -115,19 +115,19 @@ describe('WayloVoice', () => {
       await flush();
       expect(vi.getTimerCount()).toBe(1);
       await call.stop();
-      await expect(errorCodeFrom(started)).resolves.toBe('cancelled');
+      await expect(errorCodeFrom(started)).resolves.toBe('CANCELLED');
       expect(clearTimeoutSpy).toHaveBeenCalled();
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('rejects start() after a cancelled start with already_started', async () => {
+    it('rejects start() after a CANCELLED start with ALREADY_STARTED', async () => {
       const call = new WayloVoice();
       const started = call.start(webSessionBootstrap());
 
       await call.stop();
-      await expect(errorCodeFrom(started)).resolves.toBe('cancelled');
+      await expect(errorCodeFrom(started)).resolves.toBe('CANCELLED');
       await expect(errorCodeFrom(call.start(webSessionBootstrap()))).resolves.toBe(
-        'already_started',
+        'ALREADY_STARTED',
       );
       expect(inspectCall(call).state).toBe('stopped');
     });

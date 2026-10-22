@@ -58,7 +58,7 @@ Call `start()` from a click handler so the browser allows audio playback. A `Way
 
 ## Errors
 
-`start()` rejects with a `WayloVoiceError`. Branch on its `code` (`microphone_denied`, `session_expired`, `connection_failed`, …), never on the message. The troubleshooting section of the [example README](example/README.md) lists every code and what to do about it.
+`start()` rejects with a `WayloVoiceError`. Branch on its `code` (`MICROPHONE_DENIED`, `SESSION_EXPIRED`, `CONNECTION_FAILED`, …), never on the message. The troubleshooting section of the [example README](example/README.md) lists every code and what to do about it.
 
 ## Example
 

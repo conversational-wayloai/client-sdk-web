@@ -28,7 +28,7 @@ export async function waitForAgent(
       if (participant.isAgent) resolve(participant);
     };
 
-    const timer = setTimeout(() => reject(new WayloVoiceError('agent_timeout')), timeoutMs);
+    const timer = setTimeout(() => reject(new WayloVoiceError('AGENT_TIMEOUT')), timeoutMs);
 
     room.on(RoomEvent.ParticipantConnected, onConnected);
 

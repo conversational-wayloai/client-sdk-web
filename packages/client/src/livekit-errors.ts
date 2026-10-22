@@ -56,10 +56,10 @@ export function disconnectCause(message: string, reason: DisconnectReason | unde
 
 export function toConnectError(error: unknown, secrets: readonly string[]): WayloVoiceError {
   if (error instanceof WayloVoiceError) return error;
-  if (!isConnectionError(error)) return new WayloVoiceError('connection_failed', error, secrets);
+  if (!isConnectionError(error)) return new WayloVoiceError('CONNECTION_FAILED', error, secrets);
 
   const code =
-    error.reason === ConnectionErrorReason.NotAllowed ? 'session_expired' : 'connection_failed';
+    error.reason === ConnectionErrorReason.NotAllowed ? 'SESSION_EXPIRED' : 'CONNECTION_FAILED';
 
   return new WayloVoiceError(code, toDebugCause(error), secrets);
 }
@@ -67,25 +67,25 @@ export function toConnectError(error: unknown, secrets: readonly string[]): Wayl
 export function toMicrophoneError(error: unknown, secrets: readonly string[]): WayloVoiceError {
   const name = errorName(error);
 
-  if (name === undefined) return new WayloVoiceError('connection_failed', error, secrets);
+  if (name === undefined) return new WayloVoiceError('CONNECTION_FAILED', error, secrets);
 
   switch (MediaDeviceFailure.getFailure(error)) {
     case MediaDeviceFailure.PermissionDenied:
-      return new WayloVoiceError('microphone_denied', error, secrets);
+      return new WayloVoiceError('MICROPHONE_DENIED', error, secrets);
     case MediaDeviceFailure.NotFound:
     case MediaDeviceFailure.DeviceInUse:
-      return new WayloVoiceError('microphone_unavailable', error, secrets);
+      return new WayloVoiceError('MICROPHONE_UNAVAILABLE', error, secrets);
   }
 
   if (error instanceof DeviceUnsupportedError || UNAVAILABLE_MICROPHONE_ERRORS.has(name)) {
-    return new WayloVoiceError('microphone_unavailable', error, secrets);
+    return new WayloVoiceError('MICROPHONE_UNAVAILABLE', error, secrets);
   }
 
-  return new WayloVoiceError('connection_failed', error, secrets);
+  return new WayloVoiceError('CONNECTION_FAILED', error, secrets);
 }
 
 export function toWayloVoiceError(error: unknown, secrets: readonly string[]): WayloVoiceError {
   return error instanceof WayloVoiceError
     ? error
-    : new WayloVoiceError('connection_failed', error, secrets);
+    : new WayloVoiceError('CONNECTION_FAILED', error, secrets);
 }

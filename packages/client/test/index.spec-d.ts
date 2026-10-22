@@ -57,15 +57,15 @@ describe('public API', () => {
 
   it('WayloVoiceErrorCode is the closed set of codes', () => {
     expectTypeOf<WayloVoiceErrorCode>().toEqualTypeOf<
-      | 'agent_left'
-      | 'agent_timeout'
-      | 'already_started'
-      | 'cancelled'
-      | 'connection_failed'
-      | 'invalid_session'
-      | 'microphone_denied'
-      | 'microphone_unavailable'
-      | 'session_expired'
+      | 'AGENT_LEFT'
+      | 'AGENT_TIMEOUT'
+      | 'ALREADY_STARTED'
+      | 'CANCELLED'
+      | 'CONNECTION_FAILED'
+      | 'INVALID_SESSION'
+      | 'MICROPHONE_DENIED'
+      | 'MICROPHONE_UNAVAILABLE'
+      | 'SESSION_EXPIRED'
     >();
   });
 

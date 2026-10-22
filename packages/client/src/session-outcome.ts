@@ -62,7 +62,7 @@ export function decideDisconnect({
   state,
 }: DisconnectInput): DisconnectDecision {
   // Before connect resolves, the pending connect() rejects with the real cause (a 401 must stay
-  // session_expired), so the event adds nothing.
+  // SESSION_EXPIRED), so the event adds nothing.
   if (state === 'starting') return isConnected ? 'abort_start' : 'ignore';
   if (state !== 'active') return 'ignore';
   if (outcome) return outcome.state === 'error' ? 'fail' : 'end';

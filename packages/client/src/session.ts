@@ -48,7 +48,7 @@ export function isSessionExpired(session: WebSessionBootstrap, now: number = Dat
 
 export function requireSession(value: unknown): WebSessionBootstrap {
   if (typeof value !== 'object' || value === null) {
-    throw new WayloVoiceError('invalid_session');
+    throw new WayloVoiceError('INVALID_SESSION');
   }
 
   const session = value as Record<string, unknown>;
@@ -60,7 +60,7 @@ export function requireSession(value: unknown): WebSessionBootstrap {
     (session.turn === undefined || session.turn === null || isTurnServer(session.turn));
 
   if (!isValid) {
-    throw new WayloVoiceError('invalid_session');
+    throw new WayloVoiceError('INVALID_SESSION');
   }
 
   return value as WebSessionBootstrap;

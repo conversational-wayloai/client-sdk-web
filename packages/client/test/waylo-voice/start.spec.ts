@@ -126,7 +126,7 @@ describe('WayloVoice', () => {
       expect(audioElements()).toBe(1);
     });
 
-    it('fails with agent_timeout and cleans up when the agent never joins', async () => {
+    it('fails with AGENT_TIMEOUT and cleans up when the agent never joins', async () => {
       vi.useFakeTimers();
       behavior.agent = 'later';
       const call = new WayloVoice({ agentTimeoutMs: 5000 });
@@ -137,7 +137,7 @@ describe('WayloVoice', () => {
       await vi.advanceTimersByTimeAsync(1);
       const { code } = await wayloVoiceErrorFrom(started);
 
-      expect(code).toBe('agent_timeout');
+      expect(code).toBe('AGENT_TIMEOUT');
       expect(inspectCall(call).state).toBe('failed');
       expectCleanedUp(lastRoom());
     });
@@ -151,13 +151,13 @@ describe('WayloVoice', () => {
       await vi.advanceTimersByTimeAsync(1);
       const { code } = await wayloVoiceErrorFrom(started);
 
-      expect(code).toBe('agent_timeout');
+      expect(code).toBe('AGENT_TIMEOUT');
     });
 
     it.each([
-      ['NotAllowedError', 'microphone_denied'],
-      ['NotFoundError', 'microphone_unavailable'],
-      ['NotReadableError', 'microphone_unavailable'],
+      ['NotAllowedError', 'MICROPHONE_DENIED'],
+      ['NotFoundError', 'MICROPHONE_UNAVAILABLE'],
+      ['NotReadableError', 'MICROPHONE_UNAVAILABLE'],
     ])('maps a %s from the mic to %s', async (name, code) => {
       behavior.microphone = () => Promise.reject(domError(name));
       const call = new WayloVoice();
@@ -170,9 +170,9 @@ describe('WayloVoice', () => {
     });
 
     it.each([
-      ['an OverconstrainedError', domError('OverconstrainedError'), 'microphone_unavailable'],
-      ['any other DOMException', domError('AbortError'), 'connection_failed'],
-      ['an unknown mic error', new Error('boom'), 'connection_failed'],
+      ['an OverconstrainedError', domError('OverconstrainedError'), 'MICROPHONE_UNAVAILABLE'],
+      ['any other DOMException', domError('AbortError'), 'CONNECTION_FAILED'],
+      ['an unknown mic error', new Error('boom'), 'CONNECTION_FAILED'],
     ])('maps %s from the mic to %s', async (_label, failure, code) => {
       behavior.microphone = () => Promise.reject(failure);
       const error = await wayloVoiceErrorFrom(new WayloVoice().start(webSessionBootstrap()));
@@ -186,7 +186,7 @@ describe('WayloVoice', () => {
         new WayloVoice().start(webSessionBootstrap({ expiresAt })),
       );
 
-      expect(error.code).toBe('session_expired');
+      expect(error.code).toBe('SESSION_EXPIRED');
       expect(FakeRoom.instances).toHaveLength(0);
     });
 
@@ -197,11 +197,11 @@ describe('WayloVoice', () => {
       expect(lastRoom().connect).toHaveBeenCalledTimes(1);
     });
 
-    it('maps a LiveKit 401 / NotAllowed to session_expired and keeps the HTTP status', async () => {
+    it('maps a LiveKit 401 / NotAllowed to SESSION_EXPIRED and keeps the HTTP status', async () => {
       behavior.connect = () => Promise.reject(ConnectionError.notAllowed('invalid token', 401));
       const error = await wayloVoiceErrorFrom(new WayloVoice().start(webSessionBootstrap()));
 
-      expect(error.code).toBe('session_expired');
+      expect(error.code).toBe('SESSION_EXPIRED');
       expect(error.cause).toMatchObject({
         name: 'ConnectionError',
         reason: ConnectionErrorReason.NotAllowed,
@@ -214,7 +214,7 @@ describe('WayloVoice', () => {
         Promise.reject(ConnectionError.leaveRequest('left', DisconnectReason.JOIN_FAILURE));
       const error = await wayloVoiceErrorFrom(new WayloVoice().start(webSessionBootstrap()));
 
-      expect(error.code).toBe('connection_failed');
+      expect(error.code).toBe('CONNECTION_FAILED');
       expect(error.cause).toMatchObject({
         disconnectReason: 'JOIN_FAILURE',
         name: 'ConnectionError',
@@ -222,17 +222,17 @@ describe('WayloVoice', () => {
       });
     });
 
-    it('maps any other connect failure to connection_failed', async () => {
+    it('maps any other connect failure to CONNECTION_FAILED', async () => {
       behavior.connect = () => Promise.reject(ConnectionError.serverUnreachable('nope'));
       const call = new WayloVoice();
       const error = await wayloVoiceErrorFrom(call.start(webSessionBootstrap()));
 
-      expect(error.code).toBe('connection_failed');
+      expect(error.code).toBe('CONNECTION_FAILED');
       expect(lastRoom().localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
       expectCleanedUp(lastRoom());
     });
 
-    it('keeps session_expired when the room reports Disconnected before connect rejects', async () => {
+    it('keeps SESSION_EXPIRED when the room reports Disconnected before connect rejects', async () => {
       const gate = deferred();
 
       behavior.connect = () => gate.promise;
@@ -245,12 +245,12 @@ describe('WayloVoice', () => {
       gate.reject(ConnectionError.notAllowed('invalid token', 401));
       const error = await wayloVoiceErrorFrom(started);
 
-      expect(error.code).toBe('session_expired');
+      expect(error.code).toBe('SESSION_EXPIRED');
       expect(inspectCall(call).state).toBe('failed');
       expectCleanedUp(lastRoom());
     });
 
-    it('fails with connection_failed when the room drops while the mic is starting', async () => {
+    it('fails with CONNECTION_FAILED when the room drops while the mic is starting', async () => {
       const gate = deferred();
 
       behavior.microphone = () => gate.promise;
@@ -261,7 +261,7 @@ describe('WayloVoice', () => {
       lastRoom().serverDisconnect(DisconnectReason.SIGNAL_CLOSE);
       const error = await wayloVoiceErrorFrom(started);
 
-      expect(error.code).toBe('connection_failed');
+      expect(error.code).toBe('CONNECTION_FAILED');
       expect(error.cause).toMatchObject({ disconnectReason: 'SIGNAL_CLOSE' });
       expect(inspectCall(call).state).toBe('failed');
       expectCleanedUp(lastRoom());
@@ -272,28 +272,28 @@ describe('WayloVoice', () => {
       );
     });
 
-    it('rejects an invalid session with invalid_session', async () => {
+    it('rejects an invalid session with INVALID_SESSION', async () => {
       const error = await wayloVoiceErrorFrom(new WayloVoice().start({} as never));
 
-      expect(error.code).toBe('invalid_session');
+      expect(error.code).toBe('INVALID_SESSION');
     });
 
-    it('rejects a second start() with already_started', async () => {
+    it('rejects a second start() with ALREADY_STARTED', async () => {
       const call = new WayloVoice();
 
       await call.start(webSessionBootstrap());
       const { code } = await wayloVoiceErrorFrom(call.start(webSessionBootstrap()));
 
-      expect(code).toBe('already_started');
+      expect(code).toBe('ALREADY_STARTED');
     });
 
-    it('rejects start() after a failed start with already_started', async () => {
+    it('rejects start() after a failed start with ALREADY_STARTED', async () => {
       const call = new WayloVoice();
 
       await wayloVoiceErrorFrom(call.start({} as never));
       const { code } = await wayloVoiceErrorFrom(call.start(webSessionBootstrap()));
 
-      expect(code).toBe('already_started');
+      expect(code).toBe('ALREADY_STARTED');
     });
 
     it('never puts the participant token or TURN credential in the error or its cause', async () => {
@@ -312,7 +312,7 @@ describe('WayloVoice', () => {
       );
       const surfaces = everyErrorSurface(error);
 
-      expect(error.code).toBe('session_expired');
+      expect(error.code).toBe('SESSION_EXPIRED');
       expect(surfaces).not.toContain(TEST_PARTICIPANT_TOKEN);
       expect(surfaces).not.toContain(credential);
     });

@@ -86,15 +86,15 @@ Errors from the SDK (`WayloVoiceError.code`):
 
 | Code | What to do |
 | --- | --- |
-| `microphone_denied` | Allow microphone access in the browser and try again. |
-| `microphone_unavailable` | Connect a microphone, close other apps using it, and try again. |
-| `session_expired` | The session expired. Click **Talk** again. |
-| `agent_timeout` | The assistant didn't join in time. Try again. |
-| `connection_failed` | Check your network and try again. |
-| `agent_left` | The assistant ended the call. Click **Talk** to start a new one. |
-| `cancelled` | The call was stopped while it was starting. |
-| `already_started` | Each `WayloVoice` starts once. Create a new `WayloVoice` for each call. |
-| `invalid_session` | Check that `/talk` returns the Waylo API response unchanged. |
+| `MICROPHONE_DENIED` | Allow microphone access in the browser and try again. |
+| `MICROPHONE_UNAVAILABLE` | Connect a microphone, close other apps using it, and try again. |
+| `SESSION_EXPIRED` | The session expired. Click **Talk** again. |
+| `AGENT_TIMEOUT` | The assistant didn't join in time. Try again. |
+| `CONNECTION_FAILED` | Check your network and try again. |
+| `AGENT_LEFT` | The assistant ended the call. Click **Talk** to start a new one. |
+| `CANCELLED` | The call was stopped while it was starting. |
+| `ALREADY_STARTED` | Each `WayloVoice` starts once. Create a new `WayloVoice` for each call. |
+| `INVALID_SESSION` | Check that `/talk` returns the Waylo API response unchanged. |
 
 ## Files
 

@@ -13,14 +13,14 @@ function foreignConnectionError(reason: number): Error {
 
 describe('toConnectError', () => {
   it('returns a WayloVoiceError unchanged', () => {
-    const error = new WayloVoiceError('cancelled');
+    const error = new WayloVoiceError('CANCELLED');
 
     expect(toConnectError(error, [])).toBe(error);
   });
 
-  it('maps a NotAllowed ConnectionError from another livekit-client copy to session_expired', () => {
+  it('maps a NotAllowed ConnectionError from another livekit-client copy to SESSION_EXPIRED', () => {
     expect(toConnectError(foreignConnectionError(ConnectionErrorReason.NotAllowed), []).code).toBe(
-      'session_expired',
+      'SESSION_EXPIRED',
     );
   });
 
@@ -31,8 +31,8 @@ describe('toConnectError', () => {
       Object.assign(new Error('x'), { name: 'ConnectionError' }),
     ],
     ['a plain Error', new Error('x')],
-  ])('maps %s to connection_failed', (_label, error) => {
-    expect(toConnectError(error, []).code).toBe('connection_failed');
+  ])('maps %s to CONNECTION_FAILED', (_label, error) => {
+    expect(toConnectError(error, []).code).toBe('CONNECTION_FAILED');
   });
 
   it('keeps the HTTP status of a ConnectionError', () => {
@@ -44,35 +44,35 @@ describe('toConnectError', () => {
 
 describe('toMicrophoneError', () => {
   it.each([
-    ['NotAllowedError', 'microphone_denied'],
-    ['NotFoundError', 'microphone_unavailable'],
-    ['NotReadableError', 'microphone_unavailable'],
-    ['OverconstrainedError', 'microphone_unavailable'],
-    ['AbortError', 'connection_failed'],
-    ['SecurityError', 'connection_failed'],
+    ['NotAllowedError', 'MICROPHONE_DENIED'],
+    ['NotFoundError', 'MICROPHONE_UNAVAILABLE'],
+    ['NotReadableError', 'MICROPHONE_UNAVAILABLE'],
+    ['OverconstrainedError', 'MICROPHONE_UNAVAILABLE'],
+    ['AbortError', 'CONNECTION_FAILED'],
+    ['SecurityError', 'CONNECTION_FAILED'],
   ])('maps a %s DOMException to %s', (name, code) => {
     expect(toMicrophoneError(new DOMException('mic', name), []).code).toBe(code);
   });
 
-  it('maps an OverconstrainedError that is not a DOMException to microphone_unavailable', () => {
+  it('maps an OverconstrainedError that is not a DOMException to MICROPHONE_UNAVAILABLE', () => {
     const error = Object.assign(new Error('constraint'), { name: 'OverconstrainedError' });
 
-    expect(toMicrophoneError(error, []).code).toBe('microphone_unavailable');
+    expect(toMicrophoneError(error, []).code).toBe('MICROPHONE_UNAVAILABLE');
   });
 
-  it('maps DeviceUnsupportedError to microphone_unavailable', () => {
+  it('maps DeviceUnsupportedError to MICROPHONE_UNAVAILABLE', () => {
     expect(toMicrophoneError(new DeviceUnsupportedError('no getUserMedia'), []).code).toBe(
-      'microphone_unavailable',
+      'MICROPHONE_UNAVAILABLE',
     );
   });
 
-  it('maps a non-error value to connection_failed', () => {
-    expect(toMicrophoneError('nope', []).code).toBe('connection_failed');
+  it('maps a non-error value to CONNECTION_FAILED', () => {
+    expect(toMicrophoneError('nope', []).code).toBe('CONNECTION_FAILED');
   });
 });
 
 describe('toWayloVoiceError', () => {
-  it('wraps anything else in connection_failed', () => {
-    expect(toWayloVoiceError(new Error('x'), []).code).toBe('connection_failed');
+  it('wraps anything else in CONNECTION_FAILED', () => {
+    expect(toWayloVoiceError(new Error('x'), []).code).toBe('CONNECTION_FAILED');
   });
 });

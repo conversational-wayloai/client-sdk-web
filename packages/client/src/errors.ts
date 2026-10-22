@@ -1,37 +1,37 @@
 export const WAYLO_VOICE_ERROR_CODES = [
   /** The agent left the room unexpectedly while the call was active. */
-  'agent_left',
+  'AGENT_LEFT',
   /** The agent did not join the room within `agentTimeoutMs`. */
-  'agent_timeout',
+  'AGENT_TIMEOUT',
   /** `start()` was called on a `WayloVoice` that was already used. */
-  'already_started',
+  'ALREADY_STARTED',
   /** `stop()` was called before `start()` finished. */
-  'cancelled',
+  'CANCELLED',
   /** The call could not connect, or it dropped after connecting. */
-  'connection_failed',
+  'CONNECTION_FAILED',
   /** The session passed to `start()` is not a valid `WebSessionBootstrap`. */
-  'invalid_session',
+  'INVALID_SESSION',
   /** The caller or the browser refused microphone access. */
-  'microphone_denied',
+  'MICROPHONE_DENIED',
   /** No microphone exists, it is busy, or it cannot meet the constraints. */
-  'microphone_unavailable',
+  'MICROPHONE_UNAVAILABLE',
   /** The session expired or LiveKit rejected its token; fetch a new one. */
-  'session_expired',
+  'SESSION_EXPIRED',
 ] as const;
 
 /** Why a call failed. Stable strings, safe to branch on. */
 export type WayloVoiceErrorCode = (typeof WAYLO_VOICE_ERROR_CODES)[number];
 
 const MESSAGES: Record<WayloVoiceErrorCode, string> = {
-  agent_left: 'The assistant left the call.',
-  agent_timeout: 'The agent did not join in time.',
-  already_started: 'This call has already been used; create a new WayloVoice for a new call.',
-  cancelled: 'The call was stopped before it finished starting.',
-  connection_failed: 'Could not connect the call.',
-  invalid_session: 'The session passed to start() is missing required fields.',
-  microphone_denied: 'Microphone access was denied.',
-  microphone_unavailable: 'No usable microphone was found.',
-  session_expired: 'The session has expired or was rejected; fetch a new one.',
+  AGENT_LEFT: 'The assistant left the call.',
+  AGENT_TIMEOUT: 'The agent did not join in time.',
+  ALREADY_STARTED: 'This call has already been used; create a new WayloVoice for a new call.',
+  CANCELLED: 'The call was stopped before it finished starting.',
+  CONNECTION_FAILED: 'Could not connect the call.',
+  INVALID_SESSION: 'The session passed to start() is missing required fields.',
+  MICROPHONE_DENIED: 'Microphone access was denied.',
+  MICROPHONE_UNAVAILABLE: 'No usable microphone was found.',
+  SESSION_EXPIRED: 'The session has expired or was rejected; fetch a new one.',
 };
 
 const REDACTED = '[redacted]';

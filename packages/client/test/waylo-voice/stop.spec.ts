@@ -63,39 +63,39 @@ describe('WayloVoice', () => {
   });
 
   describe('start() on a used call', () => {
-    it('rejects with already_started after stop() and creates no room', async () => {
+    it('rejects with ALREADY_STARTED after stop() and creates no room', async () => {
       const call = new WayloVoice();
 
       await call.start(webSessionBootstrap());
       await call.stop();
       await expect(call.stop()).resolves.toBeUndefined();
       await expect(errorCodeFrom(call.start(webSessionBootstrap()))).resolves.toBe(
-        'already_started',
+        'ALREADY_STARTED',
       );
       expect(FakeRoom.instances).toHaveLength(1);
       expect(inspectCall(call).state).toBe('stopped');
     });
 
-    it('rejects with already_started after the call ended', async () => {
+    it('rejects with ALREADY_STARTED after the call ended', async () => {
       const call = new WayloVoice();
 
       await call.start(webSessionBootstrap());
       lastRoom().serverDisconnect();
       expect(inspectCall(call).state).toBe('ended');
       await expect(errorCodeFrom(call.start(webSessionBootstrap()))).resolves.toBe(
-        'already_started',
+        'ALREADY_STARTED',
       );
       await call.stop();
       expect(inspectCall(call).state).toBe('ended');
     });
 
-    it('rejects with already_started after start() failed', async () => {
+    it('rejects with ALREADY_STARTED after start() failed', async () => {
       const call = new WayloVoice();
 
-      await expect(errorCodeFrom(call.start({} as never))).resolves.toBe('invalid_session');
+      await expect(errorCodeFrom(call.start({} as never))).resolves.toBe('INVALID_SESSION');
       expect(inspectCall(call).state).toBe('failed');
       await expect(errorCodeFrom(call.start(webSessionBootstrap()))).resolves.toBe(
-        'already_started',
+        'ALREADY_STARTED',
       );
       await expect(call.stop()).resolves.toBeUndefined();
       expect(inspectCall(call).state).toBe('failed');

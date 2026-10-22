@@ -12,26 +12,26 @@ const SECRETS = [TEST_PARTICIPANT_TOKEN, TEST_TURN_SERVER.credential];
 describe('WAYLO_VOICE_ERROR_CODES', () => {
   it('pins the public error codes', () => {
     expect(WAYLO_VOICE_ERROR_CODES).toEqual([
-      'agent_left',
-      'agent_timeout',
-      'already_started',
-      'cancelled',
-      'connection_failed',
-      'invalid_session',
-      'microphone_denied',
-      'microphone_unavailable',
-      'session_expired',
+      'AGENT_LEFT',
+      'AGENT_TIMEOUT',
+      'ALREADY_STARTED',
+      'CANCELLED',
+      'CONNECTION_FAILED',
+      'INVALID_SESSION',
+      'MICROPHONE_DENIED',
+      'MICROPHONE_UNAVAILABLE',
+      'SESSION_EXPIRED',
     ]);
   });
 });
 
 describe('WayloVoiceError', () => {
   it('carries a code, a fixed message and a sanitized cause', () => {
-    const error = new WayloVoiceError('connection_failed', new Error('low level'));
+    const error = new WayloVoiceError('CONNECTION_FAILED', new Error('low level'));
 
     expect(error).toBeInstanceOf(Error);
     expect(error.name).toBe('WayloVoiceError');
-    expect(error.code).toBe('connection_failed');
+    expect(error.code).toBe('CONNECTION_FAILED');
     expect(error.cause).toMatchObject({ message: 'low level', name: 'Error' });
     expect(error.message).not.toContain('low level');
   });
@@ -43,12 +43,12 @@ describe('WayloVoiceError', () => {
   });
 
   it('has no cause when none is given', () => {
-    expect('cause' in new WayloVoiceError('cancelled')).toBe(false);
+    expect('cause' in new WayloVoiceError('CANCELLED')).toBe(false);
   });
 
   it('keeps the name, code, reason and status of a LiveKit error, and drops its context', () => {
     const cause = ConnectionError.notAllowed('invalid token', 401, { token: JWT } as never);
-    const error = new WayloVoiceError('session_expired', cause);
+    const error = new WayloVoiceError('SESSION_EXPIRED', cause);
 
     expect(error.cause).toMatchObject({
       code: cause.code,
@@ -67,14 +67,14 @@ describe('WayloVoiceError', () => {
       disconnectReason: 'SIGNAL_CLOSE',
     });
 
-    expect(new WayloVoiceError('connection_failed', cause).cause).toMatchObject({
+    expect(new WayloVoiceError('CONNECTION_FAILED', cause).cause).toMatchObject({
       disconnectReason: 'SIGNAL_CLOSE',
     });
   });
 
   it('drops a status or disconnect reason of the wrong type', () => {
     const cause = Object.assign(new Error('x'), { disconnectReason: 7, status: '401' });
-    const sanitized = new WayloVoiceError('connection_failed', cause).cause;
+    const sanitized = new WayloVoiceError('CONNECTION_FAILED', cause).cause;
 
     expect(sanitized).not.toHaveProperty('status');
     expect(sanitized).not.toHaveProperty('disconnectReason');
@@ -86,7 +86,7 @@ describe('WayloVoiceError', () => {
     ['a JWT', `rejected ${JWT}`],
     ['an access_token query parameter', 'wss://lk.test/rtc?access_token=opaque&x=1'],
   ])('strips %s from the cause', (_label, message) => {
-    const error = new WayloVoiceError('connection_failed', new Error(message), SECRETS);
+    const error = new WayloVoiceError('CONNECTION_FAILED', new Error(message), SECRETS);
     const text = everyErrorSurface(error);
 
     for (const secret of [...SECRETS, JWT, 'access_token=opaque']) {
@@ -103,7 +103,7 @@ describe('WayloVoiceError', () => {
       reason: `r ${JWT}`,
       status: 401,
     });
-    const error = new WayloVoiceError('connection_failed', cause, SECRETS);
+    const error = new WayloVoiceError('CONNECTION_FAILED', cause, SECRETS);
 
     expect(error.cause).toMatchObject({
       code: '[redacted]',
@@ -116,9 +116,9 @@ describe('WayloVoiceError', () => {
 
   it('turns a non-Error cause into a redacted Error', () => {
     expect(
-      new WayloVoiceError('connection_failed', TEST_PARTICIPANT_TOKEN, SECRETS).cause,
+      new WayloVoiceError('CONNECTION_FAILED', TEST_PARTICIPANT_TOKEN, SECRETS).cause,
     ).toMatchObject({ message: '[redacted]', name: 'Error' });
-    expect(new WayloVoiceError('connection_failed', { detail: 'x' }).cause).toMatchObject({
+    expect(new WayloVoiceError('CONNECTION_FAILED', { detail: 'x' }).cause).toMatchObject({
       message: '',
       name: 'Error',
     });

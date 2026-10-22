@@ -71,8 +71,8 @@ describe('requireSession', () => {
       'a TURN server with empty urls',
       webSessionBootstrap({ turn: { credential: 'c', urls: [], username: 'u' } }),
     ],
-  ])('rejects %s with invalid_session', async (_label, value) => {
-    await expect(errorCodeFrom(() => requireSession(value))).resolves.toBe('invalid_session');
+  ])('rejects %s with INVALID_SESSION', async (_label, value) => {
+    await expect(errorCodeFrom(() => requireSession(value))).resolves.toBe('INVALID_SESSION');
   });
 });
 

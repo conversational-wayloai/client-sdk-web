@@ -7,10 +7,7 @@ export interface TurnServer {
   username: string;
 }
 
-/**
- * The `POST /sessions/web` response, passed to `start()` unchanged. Mirrors
- * `WebSessionBootstrapResponse` in application packages/api-client/src/types.gen.ts.
- */
+/** Mirrors `WebSessionBootstrapResponse` in application packages/api-client/src/types.gen.ts. */
 export interface WebSessionBootstrap {
   expiresAt: string;
   livekitUrl: string;
@@ -21,8 +18,7 @@ export interface WebSessionBootstrap {
   workspaceId: string;
 }
 
-// Browser clocks drift. Rejecting only well past expiresAt avoids failing a valid session on a
-// slow clock; LiveKit has the final say on the token.
+// Browser clocks drift; LiveKit still validates the token.
 export const CLOCK_SKEW_TOLERANCE_MS = 60_000;
 
 function isNonEmptyString(value: unknown): value is string {

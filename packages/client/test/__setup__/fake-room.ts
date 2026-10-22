@@ -144,7 +144,7 @@ export function audioElements(): number {
 }
 
 export async function flush(): Promise<void> {
-  for (let index = 0; index < 10; index++) await Promise.resolve();
+  for (let index = 0; index < 30; index++) await Promise.resolve();
 }
 
 export function lastRoom(): FakeRoom {

@@ -36,8 +36,7 @@ export interface SessionOutcome {
   state: 'error' | 'finished';
 }
 
-// Without a worker verdict, only these reasons mean the call broke; the rest (room deleted,
-// participant removed, client initiated, none) are a normal hang-up.
+// Without a worker verdict, only these reasons mean the call broke.
 export const ERROR_DISCONNECT_REASONS: ReadonlySet<DisconnectReason> = new Set([
   DisconnectReason.AGENT_ERROR,
   DisconnectReason.CONNECTION_TIMEOUT,
@@ -49,12 +48,10 @@ export const ERROR_DISCONNECT_REASONS: ReadonlySet<DisconnectReason> = new Set([
   DisconnectReason.STATE_MISMATCH,
 ]);
 
-/** The worker's verdict wins; an agent that leaves without a "completed" verdict failed the call. */
 export function decideAgentLeft(outcome: SessionOutcome | null): 'end' | 'fail' {
   return outcome?.state === 'finished' ? 'end' : 'fail';
 }
 
-/** What a room `Disconnected` event means for the call. The worker's verdict wins over the reason. */
 export function decideDisconnect({
   isConnected,
   outcome,
@@ -70,8 +67,7 @@ export function decideDisconnect({
   return reason !== undefined && ERROR_DISCONNECT_REASONS.has(reason) ? 'fail' : 'end';
 }
 
-// Off-contract attributes from a newer or broken worker are dropped, not thrown: an unknown
-// status reads as "no verdict" and an unknown end reason is left out.
+// Unknown values from a newer worker are dropped, not thrown.
 export function readSessionOutcome(
   attributes: Readonly<Record<string, string>> | undefined,
 ): SessionOutcome | null {

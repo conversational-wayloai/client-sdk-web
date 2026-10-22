@@ -1,17 +1,16 @@
 import { DisconnectReason } from 'livekit-client';
 import { describe, expect, it } from 'vitest';
 
-import { WayloVoice } from '../../src/index.js';
 import { ERROR_DISCONNECT_REASONS } from '../../src/session-outcome.js';
 import { inspectCall } from '../../src/waylo-voice.js';
 import { wayloVoiceErrorFrom } from '../__setup__/errors.js';
 import { audioElements, behavior, FakeRoom, flush, lastRoom } from '../__setup__/fake-room.js';
-import { webSessionBootstrap } from '../__setup__/fixtures.js';
+import { createCall, START } from '../__setup__/fake-session-endpoint.js';
 
 async function activeCall() {
-  const call = new WayloVoice();
+  const call = createCall();
 
-  await call.start(webSessionBootstrap());
+  await call.start(START);
   const room = lastRoom();
   const agent = room.remoteParticipants.get('agent');
 
@@ -164,8 +163,8 @@ describe('WayloVoice', () => {
   describe('room disconnected while starting', () => {
     it('fails with CONNECTION_FAILED after connect, while waiting for the agent', async () => {
       behavior.agent = 'later';
-      const call = new WayloVoice();
-      const started = call.start(webSessionBootstrap());
+      const call = createCall();
+      const started = call.start(START);
 
       await flush();
       lastRoom().serverDisconnect(DisconnectReason.SERVER_SHUTDOWN);

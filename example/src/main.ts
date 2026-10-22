@@ -1,21 +1,25 @@
-import {
-  WayloVoice,
-  WayloVoiceError,
-  type WayloVoiceErrorCode,
-  type WebSessionBootstrap,
-} from '@waylovoice/client';
+import { WayloVoice, WayloVoiceError, type WayloVoiceErrorCode } from '@waylovoice/client';
+
+const SESSION_ENDPOINT = '/api/waylo/session';
 
 const HINTS: Record<WayloVoiceErrorCode, string> = {
+  ACCESS_DENIED: "This agent isn't allowed by the session endpoint.",
   AGENT_LEFT: 'The assistant ended the call. Click Talk to start a new one.',
   AGENT_TIMEOUT: "The assistant didn't join in time. Try again.",
   ALREADY_STARTED: 'Each WayloVoice starts once. Create a new WayloVoice for each call.',
+  AUTH_REQUIRED: 'Your session endpoint answered 401 or redirected.',
   CANCELLED: 'The call was stopped while it was starting.',
-  CONNECTION_FAILED: 'Check your network and try again.',
-  INVALID_SESSION: 'Check that /talk returns the Waylo API response unchanged.',
+  CONNECTION_FAILED: 'Check your network and the server terminal, then try again.',
+  INVALID_SESSION: `Check that ${SESSION_ENDPOINT} returns the Waylo API response unchanged.`,
+  LIMIT_REACHED: 'Too many calls right now. Wait a moment and try again.',
   MICROPHONE_DENIED: 'Allow microphone access in the browser and try again.',
   MICROPHONE_UNAVAILABLE: 'Connect a microphone, close other apps using it, and try again.',
   SESSION_EXPIRED: 'The session expired. Click Talk again.',
 };
+
+interface Agent {
+  agentId: string;
+}
 
 function requireElement<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -30,8 +34,8 @@ const hangUpButton = requireElement<HTMLButtonElement>('hang-up');
 const statusText = requireElement('status');
 const errorText = requireElement('error');
 
+let agentId: string | undefined;
 let activeWayloVoice: WayloVoice | undefined;
-let attempt = 0;
 
 function describeError(error: unknown): string {
   if (error instanceof WayloVoiceError) {
@@ -41,18 +45,23 @@ function describeError(error: unknown): string {
   return String(error);
 }
 
-async function describeFailedResponse(response: Response | undefined): Promise<string> {
-  if (!response) return 'Could not reach the server. Is it running?';
+async function loadAgent(): Promise<void> {
+  const response = await fetch('/api/example/agent').catch(() => undefined);
 
-  const body: unknown = await response.json().catch(() => undefined);
-  const error = (body as { error?: unknown } | undefined)?.error;
-  const code = typeof error === 'string' ? error : (error as { code?: unknown } | undefined)?.code;
+  if (!response?.ok) {
+    show('idle', 'Could not load /api/example/agent. Is the server running?');
 
-  return `Could not start a session: ${typeof code === 'string' ? code : 'unknown error'} (HTTP ${response.status})`;
+    return;
+  }
+
+  const agent = (await response.json()) as Agent;
+
+  agentId = agent.agentId;
+  setInCall(false);
 }
 
 function setInCall(inCall: boolean): void {
-  talkButton.disabled = inCall;
+  talkButton.disabled = inCall || agentId === undefined;
   hangUpButton.disabled = !inCall;
 }
 
@@ -63,47 +72,16 @@ function show(status: string, error = ''): void {
 }
 
 talkButton.addEventListener('click', async () => {
-  const current = ++attempt;
+  if (agentId === undefined) return;
 
-  setInCall(true);
-  show('requesting session');
-
-  const response = await fetch('/talk', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ attemptId: crypto.randomUUID() }),
-  }).catch(() => undefined);
-
-  if (current !== attempt) return;
-
-  if (!response?.ok) {
-    const error = await describeFailedResponse(response);
-
-    if (current !== attempt) return;
-    show('idle', error);
-    setInCall(false);
-
-    return;
-  }
-
-  const session: unknown = await response.json().catch(() => undefined);
-
-  if (current !== attempt) return;
-
-  if (session === undefined) {
-    show('idle', 'Could not start a session: the server response is not JSON.');
-    setInCall(false);
-
-    return;
-  }
-
-  const wayloVoice = new WayloVoice();
+  const wayloVoice = new WayloVoice({ sessionEndpoint: SESSION_ENDPOINT });
 
   activeWayloVoice = wayloVoice;
+  setInCall(true);
   show('connecting');
 
   try {
-    await wayloVoice.start(session as WebSessionBootstrap);
+    await wayloVoice.start({ agentId });
     show('connected, agent joined');
   } catch (error) {
     if (activeWayloVoice !== wayloVoice) return;
@@ -115,7 +93,6 @@ talkButton.addEventListener('click', async () => {
 });
 
 hangUpButton.addEventListener('click', async () => {
-  attempt++;
   const wayloVoice = activeWayloVoice;
 
   activeWayloVoice = undefined;
@@ -123,5 +100,7 @@ hangUpButton.addEventListener('click', async () => {
   show('hanging up');
   await wayloVoice?.stop();
   show('hung up');
-  talkButton.disabled = false;
+  setInCall(false);
 });
+
+await loadAgent();

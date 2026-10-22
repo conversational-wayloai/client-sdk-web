@@ -1,6 +1,6 @@
 # Waylo voice example
 
-A minimal web page that talks to a Waylo voice agent with `@waylovoice/client`. A small Node server keeps your API key and asks the Waylo API for a web session. The page creates one `new WayloVoice()` per call and passes that session to its `start()`.
+A minimal web page that talks to a Waylo voice agent with `@waylovoice/client`. A small Node server keeps your API key and serves the session endpoint `POST /api/waylo/session`. The page creates one `WayloVoice` per call and starts it with the agent id; the SDK fetches the session itself.
 
 It installs the SDK from the packed tarball, not from the source tree, to prove a real install works. It is its own pnpm project, outside the root workspace.
 
@@ -9,9 +9,9 @@ Using the SDK (one `WayloVoice` per call):
 ```ts
 import { WayloVoice } from '@waylovoice/client';
 
-const wayloVoice = new WayloVoice();
+const wayloVoice = new WayloVoice({ sessionEndpoint: '/api/waylo/session' });
 
-await wayloVoice.start(session); // the JSON from POST /talk
+await wayloVoice.start({ agentId }); // agentId comes from GET /api/example/agent
 await wayloVoice.stop();
 ```
 
@@ -55,57 +55,71 @@ While editing `src/main.ts`, run `pnpm dev:example` in a second terminal to rebu
 
 ## What you should see
 
-1. Click **Talk**. The status goes from `requesting session` to `connecting`.
+1. Click **Talk**. The status shows `connecting`.
 2. The browser asks for the microphone. Allow it.
 3. The status shows `connected, agent joined` and the assistant greets you.
 4. Click **Hang up**. The browser's microphone indicator turns off.
 
+## How the server works
+
+| Route | Does |
+| --- | --- |
+| `GET /api/example/agent` | Returns `{ agentId }`. The agent id is not secret. |
+| `POST /api/waylo/session` | The session endpoint. `403` for any agent other than `AGENT_ID`, otherwise calls `POST /sessions/web` with the API key and returns the body unchanged with `Cache-Control: no-store`. |
+
+The example has no login. A real app checks its own user's login and access to the agent at the marked spot in `server.mjs`.
+
 ## Troubleshooting
 
-Errors from the example server (`POST /talk`):
+Errors from the session endpoint (`POST /api/waylo/session`):
 
 | Status | Error | What to do |
 | --- | --- | --- |
-| 400 | `attempt_id_required` | Send a JSON body with an `attemptId`. |
-| 400 | `invalid_attempt_id` | `attemptId` must be a UUID, e.g. from `crypto.randomUUID()`. |
+| 400 | `invalid_request` | Send a JSON object with `agentId` and, optionally, a `metadata` object. |
+| 403 | `access_denied` | The page asked for an agent other than `AGENT_ID`. |
 | 415 | `json_required` | Send `Content-Type: application/json`. |
+| 429 | `api_error` | The Waylo API is rate limiting. Wait and try again. |
 | 500 | `internal_error` | Check the server terminal. |
+| 502 | `api_error` | The Waylo API refused the request. The terminal shows its status and error code. |
 | 502 | `api_unreachable` | Check `WAYLO_API_URL` and your network. The terminal shows the cause. |
 | 504 | `api_timeout` | The Waylo API did not answer within 10 seconds. Try again. |
 
-Errors from the Waylo API, passed through unchanged:
+Waylo API errors the terminal can show:
 
-| Status | Likely cause                                                                   |
-| ------ | ------------------------------------------------------------------------------ |
-| 401    | `WAYLO_API_KEY` is wrong or revoked.                                           |
-| 403    | The key lacks `sessions:create` or is pinned to a different workspace.         |
-| 404    | `WORKSPACE_ID` or `AGENT_ID` is wrong.                                         |
-| 409    | The same `attemptId` was reused for a different request. Click **Talk** again. |
+| Status | Likely cause                                                           |
+| ------ | ---------------------------------------------------------------------- |
+| 401    | `WAYLO_API_KEY` is wrong or revoked.                                   |
+| 403    | The key lacks `sessions:create` or is pinned to a different workspace. |
+| 404    | `WORKSPACE_ID` or `AGENT_ID` is wrong.                                 |
 
 Errors from the SDK (`WayloVoiceError.code`):
 
 | Code | What to do |
 | --- | --- |
+| `AUTH_REQUIRED` | The session endpoint answered `401` or redirected. The example itself does not check login. |
+| `ACCESS_DENIED` | The session endpoint answered `403`. The page asked for an agent the endpoint does not allow. |
+| `LIMIT_REACHED` | The session endpoint answered `429`. Wait and try again. |
+| `INVALID_SESSION` | Check that `/api/waylo/session` returns the Waylo API response unchanged. |
+| `SESSION_EXPIRED` | The session expired. Click **Talk** again. |
+| `CONNECTION_FAILED` | The session endpoint failed, could not be reached or did not answer within 15 s, or the call dropped. Check the server terminal and your network. |
 | `MICROPHONE_DENIED` | Allow microphone access in the browser and try again. |
 | `MICROPHONE_UNAVAILABLE` | Connect a microphone, close other apps using it, and try again. |
-| `SESSION_EXPIRED` | The session expired. Click **Talk** again. |
 | `AGENT_TIMEOUT` | The assistant didn't join in time. Try again. |
-| `CONNECTION_FAILED` | Check your network and try again. |
 | `AGENT_LEFT` | The assistant ended the call. Click **Talk** to start a new one. |
 | `CANCELLED` | The call was stopped while it was starting. |
 | `ALREADY_STARTED` | Each `WayloVoice` starts once. Create a new `WayloVoice` for each call. |
-| `INVALID_SESSION` | Check that `/talk` returns the Waylo API response unchanged. |
 
 ## Files
 
-| File                | Role                                                              |
-| ------------------- | ----------------------------------------------------------------- |
-| `server.mjs`        | Your backend route: `POST /talk` creates a Waylo session.         |
-| `src/main.ts`       | Your page code: fetches `/talk` and starts the call with the SDK. |
-| `public/index.html` | The page markup.                                                  |
+| File | Role |
+| --- | --- |
+| `server.mjs` | Your backend: `GET /api/example/agent` and the session endpoint `POST /api/waylo/session`. |
+| `src/main.ts` | Your page code: starts and stops the call with the SDK. |
+| `public/index.html` | The page markup. |
 
 ## Security
 
 - The API key stays on the server. Never send it to the browser.
-- `/talk` has no authentication. In a real app, check your own user's login before creating a Waylo session: every session costs money.
-- The session response carries a call token. The server sends it with `cache-control: no-store`.
+- Every session costs money. Before you deploy, add your own login and access check to the session endpoint.
+- The session endpoint only accepts JSON, so a plain cross-site form cannot start calls.
+- The session response carries a call token. The server sends it with `cache-control: no-store` and never logs it. The page never sees it: only the SDK does.

@@ -20,13 +20,14 @@ import {
   toWayloVoiceError,
 } from './livekit-errors.js';
 import { RemoteAudio } from './remote-audio.js';
+import { fetchSession, type SessionHeaders, type SessionRequest } from './session-endpoint.js';
 import {
   type CallState,
   decideAgentLeft,
   decideDisconnect,
   readSessionOutcome,
 } from './session-outcome.js';
-import { isSessionExpired, requireSession, type WebSessionBootstrap } from './session.js';
+import { isSessionExpired, type WebSessionBootstrap } from './session.js';
 
 interface CallEvents extends Record<string, unknown> {
   state: CallState;
@@ -38,9 +39,15 @@ interface CallInspection {
   readonly state: CallState;
 }
 
+export type WayloVoiceStartOptions = SessionRequest;
+
 export interface WayloVoiceOptions {
   /** How long `start()` waits for the agent to join before failing with `AGENT_TIMEOUT`. Default 20 s. */
   agentTimeoutMs?: number;
+  /** Extra headers for the session endpoint, e.g. `Authorization`. Called once per `start()`; never logged. */
+  headers?: SessionHeaders;
+  /** Same-origin backend route that checks your login and returns the `POST /sessions/web` response. */
+  sessionEndpoint: string;
 }
 
 const DEFAULT_AGENT_TIMEOUT_MS = 20_000;
@@ -49,10 +56,7 @@ const ROOM_DISCONNECTED = 'Room disconnected.';
 
 let inspectInternals: (call: WayloVoice) => CallInspection;
 
-/**
- * One voice call. Single use: after it ends, create a new `WayloVoice` for the next call. It does
- * nothing until `start()`, so it is safe to create on page load.
- */
+/** One single-use voice call. Safe to create on page load. */
 export class WayloVoice {
   static {
     inspectInternals = call => ({
@@ -67,6 +71,8 @@ export class WayloVoice {
   }
 
   readonly #agentTimeoutMs: number;
+  readonly #headers: SessionHeaders | undefined;
+  readonly #sessionEndpoint: string;
   readonly #audio = new RemoteAudio();
   readonly #emitter = new Emitter<CallEvents>();
   readonly #roomListenerRemovers: (() => void)[] = [];
@@ -80,20 +86,29 @@ export class WayloVoice {
   #stopPromise: Promise<void> | undefined;
   #releasePromise: Promise<void> | undefined;
 
-  /** Throws a `RangeError` for an `agentTimeoutMs` that is not a finite number above 0. */
-  constructor(options: WayloVoiceOptions = {}) {
+  /** Throws `RangeError` for invalid options. */
+  constructor(options: WayloVoiceOptions) {
+    this.#sessionEndpoint = requireSessionEndpoint(options?.sessionEndpoint);
+    this.#headers = requireHeaders(options.headers);
     this.#agentTimeoutMs = requireAgentTimeoutMs(options.agentTimeoutMs);
   }
 
   /**
-   * Connects to the room, turns on the microphone and resolves once the agent has joined.
-   * Call it from a click handler so the browser lets the agent's audio play. Rejects with a
-   * `WayloVoiceError`; a second call rejects with `ALREADY_STARTED`.
+   * Connects and resolves once the agent joins. Call from a click handler so audio can play.
+   * Rejects with `WayloVoiceError`.
    */
-  start(session: WebSessionBootstrap): Promise<void> {
+  start(options: WayloVoiceStartOptions): Promise<void> {
+    let request: SessionRequest;
+
+    try {
+      request = requireStartOptions(options);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
     if (this.#state !== 'idle') return Promise.reject(new WayloVoiceError('ALREADY_STARTED'));
     this.#setState('starting');
-    const started = this.#startCall(session);
+    const started = this.#startCall(request);
 
     // stop() only waits for start() to settle; the caller of start() gets the rejection.
     this.#startSettled = started.then(
@@ -127,7 +142,7 @@ export class WayloVoice {
     return this.#stopPromise;
   }
 
-  async #startCall(input: WebSessionBootstrap): Promise<void> {
+  async #startCall(request: SessionRequest): Promise<void> {
     const startAbort = new AbortController();
     const { signal } = startAbort;
     let secrets: string[] = [];
@@ -135,18 +150,21 @@ export class WayloVoice {
     this.#startAbort = startAbort;
 
     try {
-      const session = requireSession(input);
-
-      secrets = secretsFrom(session);
-      if (isSessionExpired(session)) throw new WayloVoiceError('SESSION_EXPIRED');
-
       // Audio-only call: adaptive stream and dynacast only manage video layers.
       const room = new Room({ adaptiveStream: false, dynacast: false });
 
       this.#room = room;
-      // Runs before any await so it still counts as the caller's click gesture for autoplay.
+      // Before any await, so it still counts as the click gesture for autoplay.
       room.startAudio().catch(() => undefined);
       this.#listenToRoom(room);
+
+      const session = await abortable(
+        fetchSession(this.#sessionEndpoint, request, this.#headers, signal),
+        signal,
+      );
+
+      secrets = secretsFrom(session);
+      if (isSessionExpired(session)) throw new WayloVoiceError('SESSION_EXPIRED');
 
       await this.#connect(room, session, signal, secrets);
       this.#isConnected = true;
@@ -195,8 +213,7 @@ export class WayloVoice {
   ): Promise<void> {
     const enabling = room.localParticipant.setMicrophoneEnabled(true);
 
-    // A cancelled start stops waiting, but getUserMedia still finishes later; stop that track so
-    // the browser's mic indicator turns off.
+    // getUserMedia finishes even after cancel; stop the track so the mic indicator turns off.
     enabling
       .then(publication => {
         if (signal.aborted) publication?.track?.stop();
@@ -273,7 +290,6 @@ export class WayloVoice {
         break;
       case 'ignore':
         break;
-      // no default
     }
   }
 
@@ -329,6 +345,10 @@ async function abortableStep<T>(
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function requireAgentTimeoutMs(value: number | undefined): number {
   if (value === undefined) return DEFAULT_AGENT_TIMEOUT_MS;
 
@@ -339,13 +359,55 @@ function requireAgentTimeoutMs(value: number | undefined): number {
   return value;
 }
 
-function secretsFrom(session: WebSessionBootstrap): string[] {
-  return session.turn
-    ? [session.participantToken, session.turn.credential]
-    : [session.participantToken];
+function requireHeaders(value: SessionHeaders | undefined): SessionHeaders | undefined {
+  if (value !== undefined && typeof value !== 'function') {
+    throw new RangeError('headers must be a function that returns the request headers.');
+  }
+
+  return value;
 }
 
-// Test-only view of the state machine. index.ts does not re-export it, so the package hides it.
+function requireSessionEndpoint(value: string | undefined): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new RangeError('sessionEndpoint must be a non-empty URL string.');
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(value, globalThis.location.href);
+  } catch {
+    throw new RangeError('sessionEndpoint must be a valid URL.');
+  }
+
+  if (url.origin !== globalThis.location.origin) {
+    throw new RangeError('sessionEndpoint must be on the same origin as the page.');
+  }
+
+  return value;
+}
+
+function requireStartOptions(value: WayloVoiceStartOptions | undefined): SessionRequest {
+  if (!isPlainObject(value)) throw new RangeError('start() options must be an object.');
+
+  if (typeof value.agentId !== 'string' || value.agentId.trim() === '') {
+    throw new RangeError('agentId must be a non-empty string.');
+  }
+
+  if (value.metadata !== undefined && !isPlainObject(value.metadata)) {
+    throw new RangeError('metadata must be a plain object.');
+  }
+
+  return value;
+}
+
+function secretsFrom(session: WebSessionBootstrap): string[] {
+  const secrets = [session.livekitUrl, session.participantToken];
+
+  return session.turn ? [...secrets, session.turn.credential] : secrets;
+}
+
+// Test-only; not re-exported from index.ts.
 export function inspectCall(call: WayloVoice): CallInspection {
   return inspectInternals(call);
 }

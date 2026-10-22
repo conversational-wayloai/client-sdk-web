@@ -25,7 +25,6 @@ export function everyErrorSurface(error: WayloVoiceError): string {
   );
 }
 
-/** The WayloVoiceError a promise rejects with, or a function throws; fails the test otherwise. */
 export async function wayloVoiceErrorFrom(
   source: (() => unknown) | Promise<unknown>,
 ): Promise<WayloVoiceError> {

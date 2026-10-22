@@ -38,9 +38,13 @@ export async function waitForAgent(
     };
   });
 
+  // stop() disconnects the room right after aborting; the listener must be gone by then.
+  signal.addEventListener('abort', stopWaiting, { once: true });
+
   try {
     return await abortable(joined, signal);
   } finally {
+    signal.removeEventListener('abort', stopWaiting);
     stopWaiting();
   }
 }

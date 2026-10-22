@@ -12,12 +12,15 @@ const SECRETS = [TEST_PARTICIPANT_TOKEN, TEST_TURN_SERVER.credential];
 describe('WAYLO_VOICE_ERROR_CODES', () => {
   it('pins the public error codes', () => {
     expect(WAYLO_VOICE_ERROR_CODES).toEqual([
+      'ACCESS_DENIED',
       'AGENT_LEFT',
       'AGENT_TIMEOUT',
       'ALREADY_STARTED',
+      'AUTH_REQUIRED',
       'CANCELLED',
       'CONNECTION_FAILED',
       'INVALID_SESSION',
+      'LIMIT_REACHED',
       'MICROPHONE_DENIED',
       'MICROPHONE_UNAVAILABLE',
       'SESSION_EXPIRED',
@@ -40,6 +43,10 @@ describe('WayloVoiceError', () => {
     for (const code of WAYLO_VOICE_ERROR_CODES) {
       expect(new WayloVoiceError(code).message).not.toBe('');
     }
+  });
+
+  it('does not tell the caller to pass a session to start()', () => {
+    expect(new WayloVoiceError('INVALID_SESSION').message).not.toContain('start()');
   });
 
   it('has no cause when none is given', () => {

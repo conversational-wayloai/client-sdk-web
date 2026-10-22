@@ -1,21 +1,15 @@
 export const WAYLO_VOICE_ERROR_CODES = [
-  /** The agent left the room unexpectedly while the call was active. */
+  'ACCESS_DENIED',
   'AGENT_LEFT',
-  /** The agent did not join the room within `agentTimeoutMs`. */
   'AGENT_TIMEOUT',
-  /** `start()` was called on a `WayloVoice` that was already used. */
   'ALREADY_STARTED',
-  /** `stop()` was called before `start()` finished. */
+  'AUTH_REQUIRED',
   'CANCELLED',
-  /** The call could not connect, or it dropped after connecting. */
   'CONNECTION_FAILED',
-  /** The session passed to `start()` is not a valid `WebSessionBootstrap`. */
   'INVALID_SESSION',
-  /** The caller or the browser refused microphone access. */
+  'LIMIT_REACHED',
   'MICROPHONE_DENIED',
-  /** No microphone exists, it is busy, or it cannot meet the constraints. */
   'MICROPHONE_UNAVAILABLE',
-  /** The session expired or LiveKit rejected its token; fetch a new one. */
   'SESSION_EXPIRED',
 ] as const;
 
@@ -23,15 +17,18 @@ export const WAYLO_VOICE_ERROR_CODES = [
 export type WayloVoiceErrorCode = (typeof WAYLO_VOICE_ERROR_CODES)[number];
 
 const MESSAGES: Record<WayloVoiceErrorCode, string> = {
+  ACCESS_DENIED: 'The session endpoint denied access to this agent.',
   AGENT_LEFT: 'The assistant left the call.',
   AGENT_TIMEOUT: 'The agent did not join in time.',
   ALREADY_STARTED: 'This call has already been used; create a new WayloVoice for a new call.',
+  AUTH_REQUIRED: 'The session endpoint requires a signed-in user.',
   CANCELLED: 'The call was stopped before it finished starting.',
   CONNECTION_FAILED: 'Could not connect the call.',
-  INVALID_SESSION: 'The session passed to start() is missing required fields.',
+  INVALID_SESSION: 'The session endpoint returned an invalid session.',
+  LIMIT_REACHED: 'Too many calls were started; try again later.',
   MICROPHONE_DENIED: 'Microphone access was denied.',
   MICROPHONE_UNAVAILABLE: 'No usable microphone was found.',
-  SESSION_EXPIRED: 'The session has expired or was rejected; fetch a new one.',
+  SESSION_EXPIRED: 'The session has expired or was rejected; start a new call.',
 };
 
 const REDACTED = '[redacted]';
@@ -45,11 +42,7 @@ interface SanitizedCause extends Error {
   status?: number;
 }
 
-/**
- * The only error the SDK rejects with. `code` is stable; `message` is fixed per code. `cause`
- * keeps the low-level name, message, codes, HTTP status and LiveKit disconnect reason for
- * debugging, with tokens and TURN credentials redacted.
- */
+/** The only error the SDK rejects with. `code` is stable; `cause` holds redacted low-level details. */
 export class WayloVoiceError extends Error {
   override readonly name = 'WayloVoiceError';
   readonly code: WayloVoiceErrorCode;

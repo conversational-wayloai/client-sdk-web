@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Rules for this repository: the Waylo Voice AI browser SDK, published as `@waylovoice/client`. It is framework-free TypeScript on top of `livekit-client`. One `WayloVoice` instance runs one call. The host's backend calls `POST /sessions/web` with its API key, and the browser passes that response, untouched, to `start()`.
+Rules for this repository: the Waylo Voice AI browser SDK, published as `@waylovoice/client`. It is framework-free TypeScript on top of `livekit-client`. One `WayloVoice` instance runs one call. The host page calls `start({ agentId })`; the SDK posts to the host's own `sessionEndpoint`, whose backend checks its login, calls `POST /sessions/web` with its API key and returns that response unchanged.
 
 ## Before writing code
 
@@ -18,7 +18,7 @@ Rules for this repository: the Waylo Voice AI browser SDK, published as `@waylov
 ## Tooling
 
 - Use pnpm. Never npm, never yarn.
-- Node and pnpm are pinned in `.nvmrc` and `package.json` `packageManager`. Do not bump either as a side effect of another change.
+- Node 24 and pnpm are pinned in `.nvmrc` and `package.json` `packageManager`. Do not bump either as a side effect of another change.
 - `pnpm lint` runs ESLint with `--fix` and rewrites files. Commit what it changed — CI runs `git diff --exit-code` after it.
 - `pnpm format` runs Prettier over non-code files (`.yml`, `.json`, `.md`, `.css`, `.html`). `pnpm validate` checks it.
 - New dependencies need approval before installing: ask before `pnpm add` or a new `package.json` entry. Shared versions go in the `pnpm-workspace.yaml` catalog.
@@ -79,4 +79,4 @@ After changing the SDK, run `pnpm build`, `pnpm pack:client` and `pnpm install:e
 
 - No keys, tokens or credentials in code or commits.
 - The example declares its variables in `example/.env.example`. Never commit `example/.env`.
-- A Waylo API key never reaches the browser. The SDK only ever receives the session response.
+- A Waylo API key never reaches the browser. The SDK only ever receives the session response, and never exposes its connection details to the host page.

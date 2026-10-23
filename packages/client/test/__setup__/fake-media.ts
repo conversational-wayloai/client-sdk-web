@@ -27,6 +27,7 @@ export function createAudioTrack() {
 
 export function createLocalParticipant(enableMicrophone: () => Promise<void>) {
   const participant = {
+    identity: 'user-session-1',
     microphone: undefined as { track: FakeLocalTrack } | undefined,
     microphoneTracks: [] as FakeLocalTrack[],
     getTrackPublication: (source: string) =>

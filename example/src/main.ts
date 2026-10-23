@@ -5,6 +5,7 @@ import {
   WayloVoiceError,
   type WayloVoiceErrorCode,
   type WayloVoiceState,
+  type WayloVoiceTranscript,
 } from '@waylovoice/client';
 
 const SESSION_ENDPOINT = '/api/waylo/session';
@@ -55,6 +56,8 @@ const timerText = requireElement('timer');
 const statePills = requireElement('state-pills');
 const errorText = requireElement('error');
 const endSummary = requireElement('end-summary');
+const transcriptList = requireElement('transcript');
+const thinking = requireElement('thinking');
 const eventLog = requireElement('events');
 
 let agentId: string | undefined;
@@ -62,6 +65,7 @@ let current: WayloVoice | undefined;
 let callNumber = 0;
 let startedAt: number | undefined;
 let clock: number | undefined;
+const rows = new Map<string, HTMLElement>();
 
 function describeChanges(before: WayloVoiceState, after: WayloVoiceState): string {
   const beforeValues = Object.fromEntries(pillValues(before));
@@ -84,6 +88,14 @@ function describeError(error: unknown): string {
   if (!(error instanceof WayloVoiceError)) return String(error);
 
   return [error.message, HINTS[error.code], `(${error.code})`].filter(Boolean).join(' ');
+}
+
+function followLatest(change: () => void): void {
+  const box = transcriptList;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+
+  change();
+  if (nearBottom) box.scrollTop = box.scrollHeight;
 }
 
 function formatTime(ms: number): string {
@@ -123,6 +135,9 @@ function render(state: WayloVoiceState): void {
   renderCallButton(state);
   renderTimer(state);
   resumeButton.hidden = state.playback !== 'blocked';
+  followLatest(() => {
+    thinking.hidden = view !== 'thinking';
+  });
   if (state.end) showEnd(state, state.end);
 }
 
@@ -159,6 +174,9 @@ function renderTimer(state: WayloVoiceState): void {
 }
 
 function resetCallView(): void {
+  rows.clear();
+  transcriptList.replaceChildren(thinking);
+  thinking.hidden = true;
   window.clearInterval(clock);
   startedAt = undefined;
   timerText.textContent = '';
@@ -204,6 +222,7 @@ function startCall(id: string): WayloVoice {
     if (changes) log(call, changes);
     previous = state;
   });
+  wayloVoice.on('transcript', upsertRow);
   wayloVoice.on('error', error => log(call, `error: ${error.code}`));
   wayloVoice.setVolume(volumeSlider.valueAsNumber);
   wayloVoice.setMuted(muteBox.checked).catch(() => undefined);
@@ -215,6 +234,24 @@ function startCall(id: string): WayloVoice {
 
 function tick(): void {
   if (startedAt !== undefined) timerText.textContent = formatTime(Date.now() - startedAt);
+}
+
+function upsertRow(line: WayloVoiceTranscript): void {
+  followLatest(() => {
+    let row = rows.get(line.id);
+
+    if (!row) {
+      row = document.createElement('p');
+      row.className = line.speaker;
+      row.dataset.testid = 'transcript-row';
+      rows.set(line.id, row);
+      transcriptList.insertBefore(row, thinking);
+      if (line.speaker === 'agent') thinking.hidden = true;
+    }
+
+    row.textContent = line.text;
+    row.classList.toggle('draft', !line.final);
+  });
 }
 
 function viewOf(state: WayloVoiceState): View {

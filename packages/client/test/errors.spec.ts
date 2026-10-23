@@ -25,6 +25,7 @@ describe('WAYLO_VOICE_ERROR_CODES', () => {
       'MICROPHONE_DENIED',
       'MICROPHONE_UNAVAILABLE',
       'SESSION_EXPIRED',
+      'TRANSCRIPT_FAILED',
     ]);
   });
 });

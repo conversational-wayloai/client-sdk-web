@@ -54,8 +54,18 @@ export class FakeRoom {
   }
 
   canPlaybackAudio = true;
+  readonly textStreamHandlers = new Map<string, Handler>();
 
   startAudio = vi.fn(() => Promise.resolve());
+
+  registerTextStreamHandler = vi.fn((topic: string, handler: Handler) => {
+    if (this.textStreamHandlers.has(topic)) throw new Error(`handler for ${topic} already set`);
+    this.textStreamHandlers.set(topic, handler);
+  });
+
+  unregisterTextStreamHandler = vi.fn((topic: string) => {
+    this.textStreamHandlers.delete(topic);
+  });
 
   connect = vi.fn(async (_url: string, _token: string, _options?: unknown) => {
     this.state = 'connecting';
@@ -143,6 +153,13 @@ export class FakeRoom {
     if (!participant) throw new Error(`no participant ${identity}`);
     participant.attributes = { ...participant.attributes, ...attributes };
     this.emit('participantAttributesChanged', attributes, participant);
+  }
+
+  streamText(stream: unknown, identity: string): void {
+    const handler = this.textStreamHandlers.get('lk.transcription');
+
+    if (!handler) throw new Error('no lk.transcription handler');
+    handler(stream, { identity });
   }
 
   setPlayback(canPlay: boolean): void {

@@ -29,6 +29,7 @@ import {
   TEST_AGENT_ID,
   TEST_SESSION_ENDPOINT,
 } from '../__setup__/fake-session-endpoint.js';
+import { createTextStream } from '../__setup__/fake-text-stream.js';
 import {
   TEST_LIVEKIT_URL,
   TEST_PARTICIPANT_TOKEN,
@@ -100,6 +101,10 @@ describe('WayloVoice', () => {
 
       await createCall().start(START);
       expect(listenersAtConnect).toBe(9);
+      expect(lastRoom().registerTextStreamHandler).toHaveBeenCalledWith(
+        'lk.transcription',
+        expect.any(Function),
+      );
     });
 
     it('forces relay ICE through the TURN server when the session has one', async () => {
@@ -534,6 +539,12 @@ describe('WayloVoice', () => {
 
       const result = await call.start(START);
 
+      const transcript = createTextStream('ST_A', { 'lk.segment_id': 'SG_A' });
+
+      lastRoom().streamText(transcript, 'agent');
+      transcript.push('Hello');
+      transcript.end();
+      await flush();
       lastRoom().serverDisconnect(DisconnectReason.SIGNAL_CLOSE);
       await flush();
       const { end } = call.getState();
@@ -547,6 +558,7 @@ describe('WayloVoice', () => {
 
       expect(result).toBeUndefined();
       expect(end).toMatchObject({ error: { code: 'CONNECTION_FAILED' }, status: 'failed' });
+      expect(publicOutput()).toContain('Hello');
 
       for (const secret of secrets) expect(surfaces).not.toContain(secret);
     });

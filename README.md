@@ -40,10 +40,11 @@ Call `start()` from a click handler so the browser allows audio playback. It res
 
 `stop()` is safe at any time. During `start()` it makes `start()` reject with `CANCELLED`; after that it ends the call with reason `caller_hangup`.
 
-### State and controls
+### State, transcripts and controls
 
 ```ts
 wayloVoice.on('state', state => render(state)); // the whole snapshot on every change
+wayloVoice.on('transcript', line => upsertRow(line.id, line.speaker, line.text, line.final));
 wayloVoice.on('error', error => console.warn(error.code));
 
 await wayloVoice.setMuted(true);
@@ -63,7 +64,7 @@ await wayloVoice.resumeAudio(); // from a click, when state.playback is 'blocked
 
 `getState()` returns the same snapshot. `on()` returns an unsubscribe function; `off()` works too. After the final `state` (the one with `end`) nothing more is emitted, whoever ended the call. `end` is what this browser saw; the stored session (`GET /sessions/:id`) is the record.
 
-While muted, the browser's mic indicator stays on. iOS Safari ignores volume levels, but 0 still mutes.
+A transcript line keeps its `id` while it grows, and `text` is the whole line so far, so replace the row with that `id`. Captions are for display; the stored session is the record. While muted, the browser's mic indicator stays on. iOS Safari ignores volume levels, but 0 still mutes.
 
 For a token-based app, add `headers`. The SDK calls it once per `start()` and sends the result only to `sessionEndpoint`. It never logs these headers or puts them in errors.
 
@@ -148,7 +149,7 @@ The session body has this shape (the SDK checks it; your page never sees it):
 
 `start()` rejects with a `WayloVoiceError`; problems after start come as `error` events and in `state.end.error`. Use its `code` to decide what to do, not its message; codes stay fixed, messages may change. The codes are:
 
-`AUTH_REQUIRED`, `ACCESS_DENIED`, `LIMIT_REACHED`, `INVALID_SESSION`, `SESSION_EXPIRED`, `CONNECTION_FAILED`, `MICROPHONE_DENIED`, `MICROPHONE_UNAVAILABLE`, `AGENT_TIMEOUT`, `AGENT_LEFT`, `AGENT_ERROR`, `ALREADY_STARTED`, `CANCELLED`.
+`AUTH_REQUIRED`, `ACCESS_DENIED`, `LIMIT_REACHED`, `INVALID_SESSION`, `SESSION_EXPIRED`, `CONNECTION_FAILED`, `MICROPHONE_DENIED`, `MICROPHONE_UNAVAILABLE`, `AGENT_TIMEOUT`, `AGENT_LEFT`, `AGENT_ERROR`, `TRANSCRIPT_FAILED`, `ALREADY_STARTED`, `CANCELLED`.
 
 The troubleshooting section of the [example README](example/README.md) says what to do about each one.
 

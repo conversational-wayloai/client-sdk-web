@@ -10,6 +10,7 @@ export type {
   WayloVoiceMicrophone,
   WayloVoicePlayback,
   WayloVoiceState,
+  WayloVoiceTranscript,
 } from './state.js';
 export { WayloVoice } from './waylo-voice.js';
 export type { WayloVoiceOptions, WayloVoiceStartOptions } from './waylo-voice.js';

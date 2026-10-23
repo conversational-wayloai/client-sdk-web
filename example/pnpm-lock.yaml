@@ -193,7 +193,7 @@ packages:
     resolution: {integrity: sha512-mUMZLK3NvwRLcAAT9qmcK+9p7tpU2FHdDsntR3YI4+GY88XrgG4XiE7u1Q2LAN2/FZOz/tdMDC3GQCR4T8nFuw==}
 
   '@waylovoice/client@file:../packages/client/waylovoice-client-0.1.0.tgz':
-    resolution: {integrity: sha512-yYhxzAHTE+2aEQ3i6GnQSeuf3tHRchzgpGVmvwhCcdD8TdMwrPxFEj/1AexP5eUgSZgF7ucB0+sqIQgig6YfbA==, tarball: file:../packages/client/waylovoice-client-0.1.0.tgz}
+    resolution: {integrity: sha512-O9W/ciHzbjnjTKq566O6kpMuvS/9bjHyXRGylzLhOnfQAzXjWkPKUk8bQv3DbS8UalElrHzWqKtcnrUFqKdcRQ==, tarball: file:../packages/client/waylovoice-client-0.1.0.tgz}
     version: 0.1.0
 
   esbuild@0.28.2:

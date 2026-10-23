@@ -13,6 +13,7 @@ import {
   type WayloVoicePlayback,
   type WayloVoiceStartOptions,
   type WayloVoiceState,
+  type WayloVoiceTranscript,
 } from '../src/index.js';
 import type { WebSessionBootstrap } from '../src/session.js';
 
@@ -127,6 +128,7 @@ describe('public API', () => {
       | 'MICROPHONE_DENIED'
       | 'MICROPHONE_UNAVAILABLE'
       | 'SESSION_EXPIRED'
+      | 'TRANSCRIPT_FAILED'
     >();
   });
 
@@ -155,11 +157,12 @@ describe('public API', () => {
     expectTypeOf<WayloVoiceEvents>().toEqualTypeOf<{
       error: WayloVoiceError;
       state: WayloVoiceState;
+      transcript: WayloVoiceTranscript;
     }>();
 
     const subscribe = (call: WayloVoice) => {
-      const off = call.on('error', error => {
-        expectTypeOf(error).toEqualTypeOf<WayloVoiceError>();
+      const off = call.on('transcript', line => {
+        expectTypeOf(line).toEqualTypeOf<WayloVoiceTranscript>();
       });
 
       call.off('state', state => {
@@ -172,5 +175,14 @@ describe('public API', () => {
     };
 
     expectTypeOf(subscribe).returns.toEqualTypeOf<() => void>();
+  });
+
+  it('WayloVoiceTranscript is an id, a speaker, the whole text and a final flag', () => {
+    expectTypeOf<WayloVoiceTranscript>().toEqualTypeOf<{
+      readonly final: boolean;
+      readonly id: string;
+      readonly speaker: 'agent' | 'user';
+      readonly text: string;
+    }>();
   });
 });

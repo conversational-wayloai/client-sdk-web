@@ -252,6 +252,7 @@ describe('WayloVoice end of call', () => {
     expect(states).toHaveLength(count);
     expect(errors).toHaveLength(0);
     expect(late).not.toHaveBeenCalled();
+    expect(room.textStreamHandlers.size).toBe(0);
   });
 
   it('never puts the participant token in a state or an error', async () => {

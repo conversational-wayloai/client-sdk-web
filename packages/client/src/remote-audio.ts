@@ -21,6 +21,10 @@ export class RemoteAudio {
     this.#elements.delete(track);
   }
 
+  hasTracks(): boolean {
+    return this.#elements.size > 0;
+  }
+
   clear(): void {
     // eslint-disable-next-line unicorn/no-useless-spread -- snapshot: detach() deletes from the map
     for (const track of [...this.#elements.keys()]) this.detach(track);

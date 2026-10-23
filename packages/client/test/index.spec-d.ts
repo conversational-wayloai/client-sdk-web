@@ -4,10 +4,15 @@ import type * as PublicApi from '../src/index.js';
 import {
   type SessionHeaders,
   WayloVoice,
+  type WayloVoiceEnd,
   WayloVoiceError,
   type WayloVoiceErrorCode,
+  type WayloVoiceEvents,
+  type WayloVoiceMicrophone,
   type WayloVoiceOptions,
+  type WayloVoicePlayback,
   type WayloVoiceStartOptions,
+  type WayloVoiceState,
 } from '../src/index.js';
 import type { WebSessionBootstrap } from '../src/session.js';
 
@@ -51,8 +56,8 @@ describe('public API', () => {
     expectTypeOf(WayloVoice).not.toHaveProperty('inspectCall');
   });
 
-  it('WayloVoice has start and stop only', () => {
-    expectTypeOf<keyof WayloVoice>().toEqualTypeOf<'start' | 'stop'>();
+  it('WayloVoice has the call and state methods only', () => {
+    expectTypeOf<keyof WayloVoice>().toEqualTypeOf<'getState' | 'off' | 'on' | 'start' | 'stop'>();
     expectTypeOf<WayloVoice['start']>().parameters.toEqualTypeOf<[WayloVoiceStartOptions]>();
     expectTypeOf<WayloVoice['start']>().returns.toEqualTypeOf<Promise<void>>();
     expectTypeOf<WayloVoice['stop']>().parameters.toEqualTypeOf<[]>();
@@ -108,6 +113,7 @@ describe('public API', () => {
   it('WayloVoiceErrorCode is the closed UPPERCASE set of codes', () => {
     expectTypeOf<WayloVoiceErrorCode>().toEqualTypeOf<
       | 'ACCESS_DENIED'
+      | 'AGENT_ERROR'
       | 'AGENT_LEFT'
       | 'AGENT_TIMEOUT'
       | 'ALREADY_STARTED'
@@ -120,5 +126,49 @@ describe('public API', () => {
       | 'MICROPHONE_UNAVAILABLE'
       | 'SESSION_EXPIRED'
     >();
+  });
+
+  it('getState() returns the state snapshot', () => {
+    expectTypeOf<WayloVoice['getState']>().returns.toEqualTypeOf<WayloVoiceState>();
+    expectTypeOf<WayloVoiceState['agent']>().toEqualTypeOf<
+      'joining' | 'listening' | 'none' | 'speaking' | 'thinking'
+    >();
+    expectTypeOf<WayloVoiceState['connection']>().toEqualTypeOf<
+      'connected' | 'connecting' | 'disconnected' | 'idle' | 'reconnecting'
+    >();
+    expectTypeOf<WayloVoiceMicrophone>().toEqualTypeOf<'off' | 'on'>();
+    expectTypeOf<WayloVoiceState['microphone']>().toEqualTypeOf<WayloVoiceMicrophone>();
+    expectTypeOf<WayloVoicePlayback>().toEqualTypeOf<'blocked' | 'playing' | 'stopped'>();
+    expectTypeOf<WayloVoiceState['playback']>().toEqualTypeOf<WayloVoicePlayback>();
+  });
+
+  it('a failed end always carries an error, a completed one never does', () => {
+    const end = {} as WayloVoiceEnd;
+
+    if (end.status === 'failed') expectTypeOf(end.error).toEqualTypeOf<WayloVoiceError>();
+    else expectTypeOf(end).not.toHaveProperty('error');
+  });
+
+  it('on() and off() are typed per event', () => {
+    expectTypeOf<WayloVoiceEvents>().toEqualTypeOf<{
+      error: WayloVoiceError;
+      state: WayloVoiceState;
+    }>();
+
+    const subscribe = (call: WayloVoice) => {
+      const off = call.on('error', error => {
+        expectTypeOf(error).toEqualTypeOf<WayloVoiceError>();
+      });
+
+      call.off('state', state => {
+        expectTypeOf(state).toEqualTypeOf<WayloVoiceState>();
+      });
+      // @ts-expect-error -- unknown event
+      call.on('speech-start', () => undefined);
+
+      return off;
+    };
+
+    expectTypeOf(subscribe).returns.toEqualTypeOf<() => void>();
   });
 });

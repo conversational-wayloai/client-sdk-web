@@ -2,7 +2,7 @@ import { DisconnectReason } from 'livekit-client';
 import { describe, expect, it } from 'vitest';
 
 import {
-  type CallState,
+  type CallPhase,
   decideAgentLeft,
   decideDisconnect,
   type DisconnectDecision,
@@ -31,12 +31,12 @@ describe('decideDisconnect', () => {
     ['failed', true, null, DisconnectReason.SIGNAL_CLOSE, 'ignore'],
   ] as const)(
     'returns %s / connected=%s / outcome=%o / reason=%s → %s',
-    (state, isConnected, outcome, reason, expected) => {
+    (phase, isConnected, outcome, reason, expected) => {
       const decision: DisconnectDecision = decideDisconnect({
         isConnected,
         outcome,
+        phase: phase as CallPhase,
         reason,
-        state: state as CallState,
       });
 
       expect(decision).toBe(expected);

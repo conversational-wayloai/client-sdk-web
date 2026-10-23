@@ -1,5 +1,6 @@
 export const WAYLO_VOICE_ERROR_CODES = [
   'ACCESS_DENIED',
+  'AGENT_ERROR',
   'AGENT_LEFT',
   'AGENT_TIMEOUT',
   'ALREADY_STARTED',
@@ -13,13 +14,14 @@ export const WAYLO_VOICE_ERROR_CODES = [
   'SESSION_EXPIRED',
 ] as const;
 
-/** Why a call failed. Stable strings, safe to branch on. */
+/** Why a call failed. Codes stay fixed; messages may change. */
 export type WayloVoiceErrorCode = (typeof WAYLO_VOICE_ERROR_CODES)[number];
 
 const MESSAGES: Record<WayloVoiceErrorCode, string> = {
   ACCESS_DENIED: 'The session endpoint denied access to this agent.',
-  AGENT_LEFT: 'The assistant left the call.',
-  AGENT_TIMEOUT: 'The agent did not join in time.',
+  AGENT_ERROR: 'The agent hit an error and ended the call.',
+  AGENT_LEFT: 'The agent left the call unexpectedly.',
+  AGENT_TIMEOUT: 'The agent was not ready in time.',
   ALREADY_STARTED: 'This call has already been used; create a new WayloVoice for a new call.',
   AUTH_REQUIRED: 'The session endpoint requires a signed-in user.',
   CANCELLED: 'The call was stopped before it finished starting.',
@@ -45,6 +47,7 @@ interface SanitizedCause extends Error {
 /** The only error the SDK rejects with. `code` is stable; `cause` holds redacted low-level details. */
 export class WayloVoiceError extends Error {
   override readonly name = 'WayloVoiceError';
+  /** What went wrong; use it to decide what to do. */
   readonly code: WayloVoiceErrorCode;
 
   constructor(code: WayloVoiceErrorCode, cause?: unknown, secrets: readonly string[] = []) {

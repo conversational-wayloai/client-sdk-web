@@ -9,19 +9,21 @@ export async function errorCodeFrom(source: (() => unknown) | Promise<unknown>):
 }
 
 export function everyErrorSurface(error: WayloVoiceError): string {
-  const expand = (_key: string, value: unknown) =>
-    value instanceof Error
-      ? {
-          ...value,
-          cause: value.cause,
-          message: value.message,
-          name: value.name,
-          stack: value.stack,
-        }
-      : value;
+  return [error.message, error.stack, String(error.cause), jsonWithErrors(error)].join('\n');
+}
 
-  return [error.message, error.stack, String(error.cause), JSON.stringify(error, expand)].join(
-    '\n',
+/** JSON.stringify that also writes out every Error's message, stack and cause. */
+export function jsonWithErrors(value: unknown): string {
+  return JSON.stringify(value, (_key, nested: unknown) =>
+    nested instanceof Error
+      ? {
+          ...nested,
+          cause: nested.cause,
+          message: nested.message,
+          name: nested.name,
+          stack: nested.stack,
+        }
+      : nested,
   );
 }
 

@@ -5,9 +5,7 @@ import { requireSession, type WebSessionBootstrap } from './session.js';
 export type SessionHeaders = () => Record<string, string> | Promise<Record<string, string>>;
 
 export interface SessionRequest {
-  /** The agent to talk to. Your session endpoint decides whether the visitor may use it. */
   agentId: string;
-  /** Passed to your session endpoint as is. */
   metadata?: Record<string, unknown>;
 }
 

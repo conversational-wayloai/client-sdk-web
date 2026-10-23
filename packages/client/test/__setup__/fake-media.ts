@@ -31,12 +31,15 @@ export function createLocalParticipant(enableMicrophone: () => Promise<void>) {
     microphoneTracks: [] as FakeLocalTrack[],
     getTrackPublication: (source: string) =>
       source === 'microphone' ? participant.microphone : undefined,
-    setMicrophoneEnabled: vi.fn(async (enabled: boolean) => {
-      if (!enabled) return participant.microphone;
+    createTracks: vi.fn(async (_options: { audio: boolean }) => {
       await enableMicrophone();
       const track = createLocalTrack();
 
       participant.microphoneTracks.push(track);
+
+      return [track];
+    }),
+    publishTrack: vi.fn(async (track: FakeLocalTrack) => {
       participant.microphone = { track };
 
       return participant.microphone;

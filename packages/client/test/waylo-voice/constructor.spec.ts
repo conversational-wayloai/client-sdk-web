@@ -13,7 +13,7 @@ describe('new WayloVoice', () => {
       sessionEndpoint: TEST_SESSION_ENDPOINT,
     });
 
-    expect(inspectCall(call).state).toBe('idle');
+    expect(inspectCall(call).phase).toBe('idle');
     expect(FakeRoom.instances).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
   });

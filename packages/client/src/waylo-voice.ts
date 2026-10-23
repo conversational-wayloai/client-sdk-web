@@ -1,6 +1,9 @@
 import {
   ConnectionState,
+  DeviceUnsupportedError,
   type DisconnectReason,
+  type LocalTrack,
+  type Participant,
   type RemoteParticipant,
   Room,
   type RoomConnectOptions,
@@ -10,7 +13,7 @@ import {
 } from 'livekit-client';
 
 import { abortable } from './abortable.js';
-import { waitForAgent } from './agent.js';
+import { findAgent, waitForAgent } from './agent.js';
 import { Emitter } from './emitter.js';
 import { WayloVoiceError } from './errors.js';
 import {
@@ -22,27 +25,39 @@ import {
 import { RemoteAudio } from './remote-audio.js';
 import { fetchSession, type SessionHeaders, type SessionRequest } from './session-endpoint.js';
 import {
-  type CallState,
+  type CallPhase,
   decideAgentLeft,
   decideDisconnect,
   readSessionOutcome,
+  type SessionEndReason,
+  type SessionOutcome,
 } from './session-outcome.js';
 import { isSessionExpired, type WebSessionBootstrap } from './session.js';
-
-interface CallEvents extends Record<string, unknown> {
-  state: CallState;
-}
+import {
+  INITIAL_STATE,
+  mergeState,
+  toAgentState,
+  type WayloVoiceEnd,
+  type WayloVoiceEvents,
+  type WayloVoiceState,
+} from './state.js';
 
 interface CallInspection {
   readonly error: WayloVoiceError | undefined;
-  onState(listener: (state: CallState) => void): () => void;
-  readonly state: CallState;
+  onPhase(listener: (phase: CallPhase) => void): () => void;
+  readonly phase: CallPhase;
 }
 
+interface PhaseEvents extends Record<string, unknown> {
+  phase: CallPhase;
+}
+
+/** Options for `start()`. */
 export type WayloVoiceStartOptions = SessionRequest;
 
+/** Options for `new WayloVoice()`. */
 export interface WayloVoiceOptions {
-  /** How long `start()` waits for the agent to join before failing with `AGENT_TIMEOUT`. Default 20 s. */
+  /** How long `start()` waits for the agent to be ready before failing with `AGENT_TIMEOUT`. Default 20 s. */
   agentTimeoutMs?: number;
   /** Extra headers for the session endpoint, e.g. `Authorization`. Called once per `start()`; never logged. */
   headers?: SessionHeaders;
@@ -63,9 +78,9 @@ export class WayloVoice {
       get error() {
         return call.#error;
       },
-      onState: listener => call.#emitter.on('state', listener),
-      get state() {
-        return call.#state;
+      onPhase: listener => call.#phaseEvents.on('phase', listener),
+      get phase() {
+        return call.#phase;
       },
     });
   }
@@ -74,12 +89,17 @@ export class WayloVoice {
   readonly #headers: SessionHeaders | undefined;
   readonly #sessionEndpoint: string;
   readonly #audio = new RemoteAudio();
-  readonly #emitter = new Emitter<CallEvents>();
-  readonly #roomListenerRemovers: (() => void)[] = [];
-  #state: CallState = 'idle';
+  readonly #phaseEvents = new Emitter<PhaseEvents>();
+  readonly #events = new Emitter<WayloVoiceEvents>();
+  readonly #cleanups: (() => void)[] = [];
+  #phase: CallPhase = 'idle';
+  #state: WayloVoiceState = INITIAL_STATE;
+  #ending = false;
+  #closed = false;
   #error: WayloVoiceError | undefined;
   #room: Room | undefined;
   #agent: RemoteParticipant | undefined;
+  #outcome: SessionOutcome | null = null;
   #isConnected = false;
   #startAbort: AbortController | undefined;
   #startSettled: Promise<void> | undefined;
@@ -93,10 +113,7 @@ export class WayloVoice {
     this.#agentTimeoutMs = requireAgentTimeoutMs(options.agentTimeoutMs);
   }
 
-  /**
-   * Connects and resolves once the agent joins. Call from a click handler so audio can play.
-   * Rejects with `WayloVoiceError`.
-   */
+  /** Connects and resolves once the agent is ready. Call it from a click so audio can play. */
   start(options: WayloVoiceStartOptions): Promise<void> {
     let request: SessionRequest;
 
@@ -106,8 +123,8 @@ export class WayloVoice {
       return Promise.reject(error);
     }
 
-    if (this.#state !== 'idle') return Promise.reject(new WayloVoiceError('ALREADY_STARTED'));
-    this.#setState('starting');
+    if (this.#phase !== 'idle') return Promise.reject(new WayloVoiceError('ALREADY_STARTED'));
+    this.#setPhase('starting');
     const started = this.#startCall(request);
 
     // stop() only waits for start() to settle; the caller of start() gets the rejection.
@@ -126,17 +143,44 @@ export class WayloVoice {
     this.#agent = undefined;
   }
 
+  /** The current state. A new frozen object whenever something changes. */
+  getState(): WayloVoiceState {
+    return this.#state;
+  }
+
+  /** Adds a listener and returns a function that removes it. */
+  on<E extends keyof WayloVoiceEvents>(
+    event: E,
+    listener: (payload: WayloVoiceEvents[E]) => void,
+  ): () => void {
+    return this.#events.on(event, listener);
+  }
+
+  /** Removes a listener added with `on()`. */
+  off<E extends keyof WayloVoiceEvents>(
+    event: E,
+    listener: (payload: WayloVoiceEvents[E]) => void,
+  ): void {
+    this.#events.off(event, listener);
+  }
+
   #stopOnce(): Promise<void> {
     if (this.#stopPromise) return this.#stopPromise;
 
     if (!this.#isLive()) return this.#releasePromise ?? Promise.resolve();
 
     this.#stopPromise = (async () => {
+      const wasActive = this.#phase === 'active';
+
       this.#startAbort?.abort(new WayloVoiceError('CANCELLED'));
-      this.#setState('stopping');
+      this.#ending = true;
+      this.#setPhase('stopping');
       await this.#releaseRoom();
       await this.#startSettled;
-      this.#setState('stopped');
+      this.#setPhase('stopped');
+      this.#close(
+        wasActive ? completedEnd('caller_hangup') : failedEnd(new WayloVoiceError('CANCELLED')),
+      );
     })();
 
     return this.#stopPromise;
@@ -150,21 +194,10 @@ export class WayloVoice {
     this.#startAbort = startAbort;
 
     try {
-      // Audio-only call: adaptive stream and dynacast only manage video layers.
-      const room = new Room({ adaptiveStream: false, dynacast: false });
-
-      this.#room = room;
-      // Before any await, so it still counts as the click gesture for autoplay.
-      room.startAudio().catch(() => undefined);
-      this.#listenToRoom(room);
-
-      const session = await abortable(
-        fetchSession(this.#sessionEndpoint, request, this.#headers, signal),
-        signal,
-      );
+      const room = this.#createRoom();
+      const session = await this.#openSession(request, signal);
 
       secrets = secretsFrom(session);
-      if (isSessionExpired(session)) throw new WayloVoiceError('SESSION_EXPIRED');
 
       await this.#connect(room, session, signal, secrets);
       this.#isConnected = true;
@@ -177,15 +210,50 @@ export class WayloVoice {
       this.#agent = await waitForAgent(room, this.#agentTimeoutMs, signal);
       signal.throwIfAborted();
 
-      this.#setState('active');
+      this.#syncAgent(room);
+      this.#setPhase('active');
     } catch (error) {
-      const { reason } = signal;
-      const isCancelled = reason instanceof WayloVoiceError && reason.code === 'CANCELLED';
-      const failure = isCancelled ? reason : toWayloVoiceError(error, secrets);
-
-      if (!isCancelled) await this.#fail(failure);
-      throw failure;
+      throw await this.#startFailure(error, signal, secrets);
     }
+  }
+
+  #createRoom(): Room {
+    // Audio-only call: adaptive stream and dynacast only manage video layers.
+    const room = new Room({ adaptiveStream: false, dynacast: false });
+
+    this.#room = room;
+    // Before any await, so it still counts as the click gesture for autoplay.
+    room.startAudio().catch(() => undefined);
+    this.#listenToRoom(room);
+
+    return room;
+  }
+
+  async #openSession(request: SessionRequest, signal: AbortSignal): Promise<WebSessionBootstrap> {
+    const session = await abortable(
+      fetchSession(this.#sessionEndpoint, request, this.#headers, signal),
+      signal,
+    );
+
+    if (isSessionExpired(session)) throw new WayloVoiceError('SESSION_EXPIRED');
+    if (typeof session.sessionId === 'string') this.#updateState({ sessionId: session.sessionId });
+
+    return session;
+  }
+
+  async #startFailure(
+    error: unknown,
+    signal: AbortSignal,
+    secrets: readonly string[],
+  ): Promise<WayloVoiceError> {
+    const { reason } = signal;
+
+    if (reason instanceof WayloVoiceError && reason.code === 'CANCELLED') return reason;
+    const failure = toWayloVoiceError(error, secrets);
+
+    await this.#fail(failure);
+
+    return failure;
   }
 
   #connect(
@@ -211,16 +279,29 @@ export class WayloVoice {
     signal: AbortSignal,
     secrets: readonly string[],
   ): Promise<void> {
-    const enabling = room.localParticipant.setMicrophoneEnabled(true);
+    await abortableStep(this.#publishMicrophone(room, signal), signal, error =>
+      toMicrophoneError(error, secrets),
+    );
+    this.#syncMicrophone(room);
+  }
 
-    // getUserMedia finishes even after cancel; stop the track so the mic indicator turns off.
-    enabling
-      .then(publication => {
-        if (signal.aborted) publication?.track?.stop();
-      })
-      .catch(() => undefined);
+  // What setMicrophoneEnabled(true) does, in two steps so a cancelled start never publishes.
+  async #publishMicrophone(room: Room, signal: AbortSignal): Promise<LocalTrack> {
+    const [track] = await room.localParticipant.createTracks({ audio: true });
 
-    await abortableStep(enabling, signal, error => toMicrophoneError(error, secrets));
+    if (!track) throw new DeviceUnsupportedError('No microphone track was created.');
+
+    try {
+      // getUserMedia finishes even after cancel; never publish then, and stop the track below.
+      signal.throwIfAborted();
+      await room.localParticipant.publishTrack(track);
+      signal.throwIfAborted();
+
+      return track;
+    } catch (error) {
+      track.stop();
+      throw error;
+    }
   }
 
   #attachSubscribedAudio(room: Room): void {
@@ -229,23 +310,63 @@ export class WayloVoice {
         if (publication.track) this.#audio.attach(publication.track);
       }
     }
+
+    this.#syncPlayback(room);
   }
 
   #listenToRoom(room: Room): void {
+    this.#listenToAudio(room);
+    this.#listenToConnection(room);
+    this.#listenToAgent(room);
+  }
+
+  #listenToAudio(room: Room): void {
     this.#addRoomListener(room, RoomEvent.TrackSubscribed, track => {
       if (this.#isLive()) this.#audio.attach(track);
+      this.#syncPlayback(room);
     });
     this.#addRoomListener(room, RoomEvent.TrackUnsubscribed, track => {
       this.#audio.detach(track);
+      this.#syncPlayback(room);
     });
+    this.#addRoomListener(room, RoomEvent.AudioPlaybackStatusChanged, () => {
+      this.#syncPlayback(room);
+    });
+  }
+
+  #listenToConnection(room: Room): void {
+    this.#addRoomListener(room, RoomEvent.Reconnecting, () => {
+      if (this.#phase === 'active') this.#updateState({ connection: 'reconnecting' });
+    });
+    this.#addRoomListener(room, RoomEvent.Reconnected, () => {
+      if (this.#phase === 'active') this.#updateState({ connection: 'connected' });
+    });
+    this.#addRoomListener(room, RoomEvent.Disconnected, reason => {
+      this.#onDisconnected(reason);
+    });
+  }
+
+  #listenToAgent(room: Room): void {
+    this.#addRoomListener(room, RoomEvent.ParticipantConnected, participant => {
+      if (participant.isAgent && this.#phase === 'active') this.#agent = participant;
+      this.#syncAgent(room);
+    });
+    this.#addRoomListener(
+      room,
+      RoomEvent.ParticipantAttributesChanged,
+      (_changed, participant: Participant) => {
+        if (!participant.isAgent) return;
+        // Latched now: the attributes may be gone by the time the agent leaves.
+        this.#outcome = readSessionOutcome(participant.attributes) ?? this.#outcome;
+        this.#syncAgent(room);
+      },
+    );
     this.#addRoomListener(room, RoomEvent.ParticipantDisconnected, (participant, reason) => {
+      this.#syncAgent(room);
       if (participant.identity !== this.#agent?.identity) return;
       // A full reconnect also reports every participant as disconnected, then switches the room
       // to reconnecting in the same tick. Looking one microtask later tells the two apart.
       queueMicrotask(() => this.#onAgentLeft(room, participant, reason));
-    });
-    this.#addRoomListener(room, RoomEvent.Disconnected, reason => {
-      this.#onDisconnected(reason);
     });
   }
 
@@ -255,53 +376,73 @@ export class WayloVoice {
     handler: RoomEventCallbacks[E],
   ): void {
     room.on(event, handler);
-    this.#roomListenerRemovers.push(() => room.off(event, handler));
+    this.#cleanups.push(() => room.off(event, handler));
   }
 
   #onAgentLeft(room: Room, agent: RemoteParticipant, reason: DisconnectReason | undefined): void {
-    if (this.#state !== 'active' || room.state !== ConnectionState.Connected) return;
+    if (this.#phase !== 'active' || room.state !== ConnectionState.Connected) return;
+    const outcome = this.#outcome ?? readSessionOutcome(agent.attributes);
 
-    if (decideAgentLeft(readSessionOutcome(agent.attributes)) === 'end') {
-      this.#end();
+    if (decideAgentLeft(outcome) === 'end') {
+      this.#end(outcome?.endReason);
     } else {
-      this.#fail(new WayloVoiceError('AGENT_LEFT', disconnectCause(AGENT_LEFT, reason)));
+      this.#failFromOutcome(
+        outcome,
+        new WayloVoiceError('AGENT_LEFT', disconnectCause(AGENT_LEFT, reason)),
+      );
     }
   }
 
   #onDisconnected(reason: DisconnectReason | undefined): void {
+    const outcome = this.#outcome ?? readSessionOutcome(this.#agent?.attributes);
     const decision = decideDisconnect({
       isConnected: this.#isConnected,
-      outcome: readSessionOutcome(this.#agent?.attributes),
+      outcome,
+      phase: this.#phase,
       reason,
-      state: this.#state,
     });
-    const failure = () =>
-      new WayloVoiceError('CONNECTION_FAILED', disconnectCause(ROOM_DISCONNECTED, reason));
 
     switch (decision) {
       case 'abort_start':
-        this.#startAbort?.abort(failure());
+        this.#startAbort?.abort(connectionFailed(reason));
         break;
       case 'end':
-        this.#end();
+        this.#end(outcome?.endReason);
         break;
       case 'fail':
-        this.#fail(failure());
+        this.#failFromOutcome(outcome, connectionFailed(reason));
         break;
       case 'ignore':
         break;
     }
   }
 
-  #end(): void {
-    this.#setState('ended');
-    this.#releaseRoom();
+  #end(reason: SessionEndReason | undefined): void {
+    this.#ending = true;
+    this.#setPhase('ended');
+    this.#releaseRoom()
+      .then(() => this.#close(completedEnd(reason)))
+      .catch(() => undefined);
   }
 
-  async #fail(error: WayloVoiceError): Promise<void> {
+  async #fail(error: WayloVoiceError, reason?: SessionEndReason): Promise<void> {
+    const wasActive = this.#phase === 'active';
+
     this.#error = error;
-    if (this.#isLive()) this.#setState('failed');
+    // A failure with no promise left to reject is reported as an `error` event.
+    if (wasActive) this.#emitError(error);
+    this.#ending = true;
+    if (this.#isLive()) this.#setPhase('failed');
     await this.#releaseRoom();
+    this.#close(failedEnd(error, reason));
+  }
+
+  #failFromOutcome(outcome: SessionOutcome | null, fallback: WayloVoiceError): Promise<void> {
+    if (outcome?.state === 'error') {
+      return this.#fail(new WayloVoiceError('AGENT_ERROR'), outcome.endReason);
+    }
+
+    return this.#fail(fallback);
   }
 
   #releaseRoom(): Promise<void> {
@@ -316,20 +457,70 @@ export class WayloVoice {
     if (!room) return;
     this.#audio.clear();
 
-    for (const removeListener of this.#roomListenerRemovers.splice(0)) removeListener();
+    for (const cleanup of this.#cleanups.splice(0)) cleanup();
 
-    room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track?.stop();
+    microphoneTrack(room)?.stop();
     await room.disconnect().catch(() => undefined);
   }
 
-  #isLive(): boolean {
-    return this.#state === 'starting' || this.#state === 'active';
+  #syncAgent(room: Room): void {
+    const agent = findAgent(room);
+
+    this.#updateState({ agent: agent ? toAgentState(agent.attributes) : 'none' });
   }
 
-  #setState(state: CallState): void {
-    if (this.#state === state) return;
-    this.#state = state;
-    this.#emitter.emit('state', state);
+  #syncMicrophone(room: Room): void {
+    const track = microphoneTrack(room);
+    const isLive = track?.mediaStreamTrack.readyState === 'live';
+
+    this.#updateState({ microphone: isLive ? 'on' : 'off' });
+  }
+
+  #syncPlayback(room: Room): void {
+    if (!this.#audio.hasTracks()) {
+      this.#updateState({ playback: 'stopped' });
+    } else {
+      this.#updateState({ playback: room.canPlaybackAudio ? 'playing' : 'blocked' });
+    }
+  }
+
+  #updateState(changes: Partial<WayloVoiceState>): void {
+    if (this.#ending) return;
+    const next = mergeState(this.#state, changes);
+
+    if (!next) return;
+    this.#state = next;
+    this.#events.emit('state', next);
+  }
+
+  #close(end: WayloVoiceEnd): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#state = Object.freeze({
+      ...this.#state,
+      agent: 'none',
+      connection: 'disconnected',
+      end,
+      microphone: 'off',
+      playback: 'stopped',
+    });
+    this.#events.emit('state', this.#state);
+  }
+
+  #emitError(error: WayloVoiceError): void {
+    if (!this.#ending) this.#events.emit('error', error);
+  }
+
+  #isLive(): boolean {
+    return this.#phase === 'starting' || this.#phase === 'active';
+  }
+
+  #setPhase(phase: CallPhase): void {
+    if (this.#phase === phase) return;
+    this.#phase = phase;
+    this.#phaseEvents.emit('phase', phase);
+    if (phase === 'starting') this.#updateState({ connection: 'connecting' });
+    if (phase === 'active') this.#updateState({ connection: 'connected' });
   }
 }
 
@@ -345,8 +536,24 @@ async function abortableStep<T>(
   }
 }
 
+function completedEnd(reason?: SessionEndReason): WayloVoiceEnd {
+  return reason ? { reason, status: 'completed' } : { status: 'completed' };
+}
+
+function connectionFailed(reason: DisconnectReason | undefined): WayloVoiceError {
+  return new WayloVoiceError('CONNECTION_FAILED', disconnectCause(ROOM_DISCONNECTED, reason));
+}
+
+function failedEnd(error: WayloVoiceError, reason?: SessionEndReason): WayloVoiceEnd {
+  return reason ? { error, reason, status: 'failed' } : { error, status: 'failed' };
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function microphoneTrack(room: Room): LocalTrack | undefined {
+  return room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
 }
 
 function requireAgentTimeoutMs(value: number | undefined): number {

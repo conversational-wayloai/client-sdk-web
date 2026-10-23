@@ -20,7 +20,7 @@ describe('toAgentState', () => {
 
 describe('mergeState', () => {
   it('returns undefined when nothing changes', () => {
-    expect(mergeState(INITIAL_STATE, { agent: 'none', connection: 'idle' })).toBeUndefined();
+    expect(mergeState(INITIAL_STATE, { agent: 'none', volume: 1 })).toBeUndefined();
   });
 
   it('returns a new frozen snapshot when something changes', () => {

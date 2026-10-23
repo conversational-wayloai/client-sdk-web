@@ -44,6 +44,13 @@ export function createLocalParticipant(enableMicrophone: () => Promise<void>) {
 
       return participant.microphone;
     }),
+    setMicrophoneEnabled: vi.fn(async (enabled: boolean) => {
+      const track = participant.microphone?.track;
+
+      await (enabled ? track?.unmute() : track?.mute());
+
+      return participant.microphone;
+    }),
   };
 
   return participant;
@@ -51,13 +58,38 @@ export function createLocalParticipant(enableMicrophone: () => Promise<void>) {
 
 export function createLocalTrack() {
   const mediaStreamTrack = { readyState: 'live' as MediaStreamTrackState };
-
-  return {
+  const listeners = new Map<string, Set<() => void>>();
+  const track = {
+    isMuted: false,
     mediaStreamTrack,
+    emit(event: string) {
+      for (const listener of listeners.get(event) ?? []) listener();
+    },
+    listenerCount() {
+      let count = 0;
+
+      for (const set of listeners.values()) count += set.size;
+
+      return count;
+    },
+    mute: vi.fn(async () => {
+      track.isMuted = true;
+    }),
+    off: vi.fn((event: string, listener: () => void) => {
+      listeners.get(event)?.delete(listener);
+    }),
+    on: vi.fn((event: string, listener: () => void) => {
+      listeners.set(event, (listeners.get(event) ?? new Set()).add(listener));
+    }),
     stop: vi.fn(() => {
       mediaStreamTrack.readyState = 'ended';
     }),
+    unmute: vi.fn(async () => {
+      track.isMuted = false;
+    }),
   };
+
+  return track;
 }
 
 export function createRemoteParticipant(identity: string, isAgent: boolean) {

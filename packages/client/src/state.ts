@@ -20,8 +20,8 @@ export type WayloVoiceEnd =
 /** Same values as the session's end reason in the Waylo API. */
 export type WayloVoiceEndReason = SessionEndReason;
 
-/** Whether the microphone is live or off. */
-export type WayloVoiceMicrophone = 'off' | 'on';
+/** Whether the microphone is live, muted or off. */
+export type WayloVoiceMicrophone = 'muted' | 'off' | 'on';
 
 /** `playing` means the browser may play the agent's audio, not that it is audible. */
 export type WayloVoicePlayback = 'blocked' | 'playing' | 'stopped';
@@ -42,12 +42,14 @@ export interface WayloVoiceState {
   readonly connection: WayloVoiceConnection;
   /** Set once, together with `connection: 'disconnected'`. Nothing is emitted after it. */
   readonly end?: WayloVoiceEnd;
-  /** Whether the microphone is live or off. */
+  /** Whether the microphone is live, muted or off. */
   readonly microphone: WayloVoiceMicrophone;
   /** Whether the browser may play the agent's audio. */
   readonly playback: WayloVoicePlayback;
   /** The Waylo session id, once known. */
   readonly sessionId?: string;
+  /** Agent volume, 0 to 1. */
+  readonly volume: number;
 }
 
 export const INITIAL_STATE: WayloVoiceState = Object.freeze({
@@ -55,6 +57,7 @@ export const INITIAL_STATE: WayloVoiceState = Object.freeze({
   connection: 'idle',
   microphone: 'off',
   playback: 'stopped',
+  volume: 1,
 });
 
 export function mergeState(

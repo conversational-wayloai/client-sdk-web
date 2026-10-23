@@ -40,23 +40,30 @@ Call `start()` from a click handler so the browser allows audio playback. It res
 
 `stop()` is safe at any time. During `start()` it makes `start()` reject with `CANCELLED`; after that it ends the call with reason `caller_hangup`.
 
-### State
+### State and controls
 
 ```ts
 wayloVoice.on('state', state => render(state)); // the whole snapshot on every change
 wayloVoice.on('error', error => console.warn(error.code));
+
+await wayloVoice.setMuted(true);
+wayloVoice.setVolume(0.5); // 0 to 1
+await wayloVoice.resumeAudio(); // from a click, when state.playback is 'blocked'
 ```
 
 | State field | Values |
 | --- | --- |
 | `connection` | `idle`, `connecting`, `connected`, `reconnecting`, `disconnected` |
 | `agent` | `none`, `joining`, `listening`, `thinking`, `speaking` |
-| `microphone` | `off`, `on` |
+| `microphone` | `off`, `on`, `muted` |
 | `playback` | `stopped`, `playing`, `blocked` |
+| `volume` | last `setVolume()` value, default 1 |
 | `sessionId` | the Waylo session id, once known |
 | `end` | set once when the call is over: `{ status: 'completed', reason? }` or `{ status: 'failed', reason?, error }`; `reason` uses the API's session end reasons |
 
 `getState()` returns the same snapshot. `on()` returns an unsubscribe function; `off()` works too. After the final `state` (the one with `end`) nothing more is emitted, whoever ended the call. `end` is what this browser saw; the stored session (`GET /sessions/:id`) is the record.
+
+While muted, the browser's mic indicator stays on. iOS Safari ignores volume levels, but 0 still mutes.
 
 For a token-based app, add `headers`. The SDK calls it once per `start()` and sends the result only to `sessionEndpoint`. It never logs these headers or puts them in errors.
 

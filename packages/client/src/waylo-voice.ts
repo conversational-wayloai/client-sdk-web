@@ -10,6 +10,7 @@ import {
   RoomEvent,
   type RoomEventCallbacks,
   Track,
+  TrackEvent,
 } from 'livekit-client';
 
 import { abortable } from './abortable.js';
@@ -96,6 +97,7 @@ export class WayloVoice {
   #state: WayloVoiceState = INITIAL_STATE;
   #ending = false;
   #closed = false;
+  #muted = false;
   #error: WayloVoiceError | undefined;
   #room: Room | undefined;
   #agent: RemoteParticipant | undefined;
@@ -162,6 +164,48 @@ export class WayloVoice {
     listener: (payload: WayloVoiceEvents[E]) => void,
   ): void {
     this.#events.off(event, listener);
+  }
+
+  /** Mutes or unmutes the mic, even before `start()`; unmuting can reject with a mic error. */
+  async setMuted(muted: boolean): Promise<void> {
+    if (typeof muted !== 'boolean') throw new RangeError('muted must be a boolean.');
+    if (this.#ending || muted === this.#muted) return;
+    const room = this.#room;
+
+    if (!room || !microphoneTrack(room)) {
+      this.#muted = muted;
+
+      return;
+    }
+
+    try {
+      await room.localParticipant.setMicrophoneEnabled(!muted);
+    } catch (error) {
+      throw toMicrophoneError(error, []);
+    }
+
+    this.#muted = muted;
+    this.#syncMicrophone(room);
+  }
+
+  /** Sets the agent's volume, 0 to 1, for every audio track now and later. */
+  setVolume(volume: number): void {
+    if (typeof volume !== 'number' || !Number.isFinite(volume) || volume < 0 || volume > 1) {
+      throw new RangeError('volume must be a number from 0 to 1.');
+    }
+
+    if (this.#ending || volume === this.#state.volume) return;
+    this.#audio.setVolume(volume);
+    this.#updateState({ volume });
+  }
+
+  /** Lets the browser play the agent's audio when `playback` is `blocked`. Call it from a click. */
+  async resumeAudio(): Promise<void> {
+    const room = this.#room;
+
+    if (this.#ending || !room) return;
+    await room.startAudio().catch(() => undefined);
+    this.#syncPlayback(room);
   }
 
   #stopOnce(): Promise<void> {
@@ -279,13 +323,17 @@ export class WayloVoice {
     signal: AbortSignal,
     secrets: readonly string[],
   ): Promise<void> {
-    await abortableStep(this.#publishMicrophone(room, signal), signal, error =>
+    const track = await abortableStep(this.#publishMicrophone(room, signal), signal, error =>
       toMicrophoneError(error, secrets),
     );
+
+    // setMuted() during publishTrack only stored the flag; apply it now.
+    if (this.#muted !== track.isMuted) await (this.#muted ? track.mute() : track.unmute());
+    this.#watchMicrophone(room, track);
     this.#syncMicrophone(room);
   }
 
-  // What setMicrophoneEnabled(true) does, in two steps so a cancelled start never publishes.
+  // What setMicrophoneEnabled(true) does, with a mute applied between getUserMedia and publishing.
   async #publishMicrophone(room: Room, signal: AbortSignal): Promise<LocalTrack> {
     const [track] = await room.localParticipant.createTracks({ audio: true });
 
@@ -294,6 +342,7 @@ export class WayloVoice {
     try {
       // getUserMedia finishes even after cancel; never publish then, and stop the track below.
       signal.throwIfAborted();
+      if (this.#muted) await track.mute();
       await room.localParticipant.publishTrack(track);
       signal.throwIfAborted();
 
@@ -302,6 +351,22 @@ export class WayloVoice {
       track.stop();
       throw error;
     }
+  }
+
+  #watchMicrophone(room: Room, track: LocalTrack): void {
+    const onEnded = () => {
+      this.#syncMicrophone(room);
+      this.#emitError(new WayloVoiceError('MICROPHONE_UNAVAILABLE'));
+    };
+
+    const onRestarted = () => this.#syncMicrophone(room);
+
+    track.on(TrackEvent.Ended, onEnded);
+    track.on(TrackEvent.Restarted, onRestarted);
+    this.#cleanups.push(() => {
+      track.off(TrackEvent.Ended, onEnded);
+      track.off(TrackEvent.Restarted, onRestarted);
+    });
   }
 
   #attachSubscribedAudio(room: Room): void {
@@ -473,7 +538,7 @@ export class WayloVoice {
     const track = microphoneTrack(room);
     const isLive = track?.mediaStreamTrack.readyState === 'live';
 
-    this.#updateState({ microphone: isLive ? 'on' : 'off' });
+    this.#updateState({ microphone: isLive ? (this.#muted ? 'muted' : 'on') : 'off' });
   }
 
   #syncPlayback(room: Room): void {

@@ -46,6 +46,9 @@ function requireElement<T extends HTMLElement>(id: string): T {
 }
 
 const callButton = requireElement<HTMLButtonElement>('call');
+const muteBox = requireElement<HTMLInputElement>('mute');
+const volumeSlider = requireElement<HTMLInputElement>('volume');
+const resumeButton = requireElement<HTMLButtonElement>('resume-audio');
 const viz = requireElement('viz');
 const statusLabel = requireElement('status');
 const timerText = requireElement('timer');
@@ -119,6 +122,7 @@ function render(state: WayloVoiceState): void {
   renderPills(state);
   renderCallButton(state);
   renderTimer(state);
+  resumeButton.hidden = state.playback !== 'blocked';
   if (state.end) showEnd(state, state.end);
 }
 
@@ -201,6 +205,8 @@ function startCall(id: string): WayloVoice {
     previous = state;
   });
   wayloVoice.on('error', error => log(call, `error: ${error.code}`));
+  wayloVoice.setVolume(volumeSlider.valueAsNumber);
+  wayloVoice.setMuted(muteBox.checked).catch(() => undefined);
   // The failure also arrives as the final `state` with `end`.
   wayloVoice.start({ agentId: id }).catch(() => undefined);
 
@@ -228,7 +234,7 @@ callButton.addEventListener('click', async () => {
   }
 
   callButton.disabled = true;
-  // Awaiting can lose the click gesture; the playback pill then shows blocked.
+  // Awaiting can lose the click gesture; the "Tap to hear the agent" banner covers a blocked start.
   const id = agentId ?? (await agentIdLoading);
 
   if (id === undefined) {
@@ -240,6 +246,21 @@ callButton.addEventListener('click', async () => {
 
   resetCallView();
   current = startCall(id);
+});
+
+muteBox.addEventListener('change', () => {
+  current?.setMuted(muteBox.checked).catch(error => {
+    muteBox.checked = !muteBox.checked;
+    showError(describeError(error));
+  });
+});
+
+volumeSlider.addEventListener('input', () => {
+  current?.setVolume(volumeSlider.valueAsNumber);
+});
+
+resumeButton.addEventListener('click', () => {
+  current?.resumeAudio().catch(() => undefined);
 });
 
 async function loadAgentId(): Promise<string | undefined> {

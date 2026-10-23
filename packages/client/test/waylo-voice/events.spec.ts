@@ -20,6 +20,7 @@ describe('WayloVoice state', () => {
       connection: 'idle',
       microphone: 'off',
       playback: 'stopped',
+      volume: 1,
     });
     expect(Object.isFrozen(state)).toBe(true);
   });
@@ -37,6 +38,7 @@ describe('WayloVoice state', () => {
       microphone: 'on',
       playback: 'playing',
       sessionId: 'session-1',
+      volume: 1,
     });
     expect(states.at(-1)).toBe(call.getState());
   });
@@ -126,6 +128,7 @@ describe('WayloVoice end of call', () => {
       microphone: 'off',
       playback: 'stopped',
       sessionId: 'session-1',
+      volume: 1,
     });
     expect(states.filter(state => state.end)).toHaveLength(1);
     expect(errors).toHaveLength(0);
@@ -242,6 +245,8 @@ describe('WayloVoice end of call', () => {
     room.setAttributes('agent', { 'lk.agent.state': 'speaking' });
     room.emit('reconnecting');
     room.setPlayback(false);
+    call.setVolume(0.5);
+    await call.setMuted(true);
     await call.stop();
     await flush();
     expect(states).toHaveLength(count);

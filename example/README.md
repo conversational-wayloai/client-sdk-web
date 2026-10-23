@@ -59,7 +59,8 @@ While editing `src/main.ts`, run `pnpm dev:example` in a second terminal to rebu
 1. Click **Talk**. The status shows **Connecting**.
 2. The browser asks for the microphone. Allow it.
 3. The agent greets you: the status shows **Speaking**, then **Listening** and **Thinking** as you talk.
-4. Click **Hang up** (or say goodbye and let the agent end the call). A summary shows how the call ended, its length and the session id, and the microphone indicator turns off.
+4. **Mute my mic** and **Agent volume** apply at once. **Tap to hear the agent** shows only when the browser blocks sound.
+5. Click **Hang up** (or say goodbye and let the agent end the call). A summary shows how the call ended, its length and the session id, and the microphone indicator turns off.
 
 The event log at the bottom numbers each call, so a late event from an old call would stand out.
 
@@ -118,7 +119,7 @@ Errors from the SDK (`WayloVoiceError.code`):
 | File | Role |
 | --- | --- |
 | `server.mjs` | Your backend: `GET /api/example/agent` and the session endpoint `POST /api/waylo/session`. |
-| `src/main.ts` | Your page code: starts and stops the call and shows its state. |
+| `src/main.ts` | Your page code: starts and stops the call, shows its state and wires the controls. |
 | `public/index.html` | The page markup. |
 | `public/brand/` | Waylo logo and favicon, copied from the dashboard. |
 

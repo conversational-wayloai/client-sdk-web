@@ -56,8 +56,10 @@ describe('public API', () => {
     expectTypeOf(WayloVoice).not.toHaveProperty('inspectCall');
   });
 
-  it('WayloVoice has the call and state methods only', () => {
-    expectTypeOf<keyof WayloVoice>().toEqualTypeOf<'getState' | 'off' | 'on' | 'start' | 'stop'>();
+  it('WayloVoice has the call, state and control methods only', () => {
+    expectTypeOf<keyof WayloVoice>().toEqualTypeOf<
+      'getState' | 'off' | 'on' | 'resumeAudio' | 'setMuted' | 'setVolume' | 'start' | 'stop'
+    >();
     expectTypeOf<WayloVoice['start']>().parameters.toEqualTypeOf<[WayloVoiceStartOptions]>();
     expectTypeOf<WayloVoice['start']>().returns.toEqualTypeOf<Promise<void>>();
     expectTypeOf<WayloVoice['stop']>().parameters.toEqualTypeOf<[]>();
@@ -136,7 +138,7 @@ describe('public API', () => {
     expectTypeOf<WayloVoiceState['connection']>().toEqualTypeOf<
       'connected' | 'connecting' | 'disconnected' | 'idle' | 'reconnecting'
     >();
-    expectTypeOf<WayloVoiceMicrophone>().toEqualTypeOf<'off' | 'on'>();
+    expectTypeOf<WayloVoiceMicrophone>().toEqualTypeOf<'muted' | 'off' | 'on'>();
     expectTypeOf<WayloVoiceState['microphone']>().toEqualTypeOf<WayloVoiceMicrophone>();
     expectTypeOf<WayloVoicePlayback>().toEqualTypeOf<'blocked' | 'playing' | 'stopped'>();
     expectTypeOf<WayloVoiceState['playback']>().toEqualTypeOf<WayloVoicePlayback>();

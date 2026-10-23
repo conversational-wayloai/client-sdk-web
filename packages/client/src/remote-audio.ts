@@ -3,11 +3,15 @@ import { type RemoteTrack, Track } from 'livekit-client';
 export class RemoteAudio {
   #container: HTMLElement | undefined;
   readonly #elements = new Map<RemoteTrack, HTMLMediaElement>();
+  #volume = 1;
 
   attach(track: RemoteTrack): void {
     if (track.kind !== Track.Kind.Audio || this.#elements.has(track)) return;
     const element = track.attach();
 
+    // Set on the element: LiveKit skips re-applying 0 on attach, and startAudio() unmutes every element.
+    applyVolume(element, this.#volume);
+    element.addEventListener('volumechange', () => applyVolume(element, this.#volume));
     this.#ensureContainer().append(element);
     this.#elements.set(track, element);
   }
@@ -23,6 +27,11 @@ export class RemoteAudio {
 
   hasTracks(): boolean {
     return this.#elements.size > 0;
+  }
+
+  setVolume(volume: number): void {
+    this.#volume = volume;
+    for (const element of this.#elements.values()) applyVolume(element, volume);
   }
 
   clear(): void {
@@ -42,4 +51,12 @@ export class RemoteAudio {
 
     return this.#container;
   }
+}
+
+function applyVolume(element: HTMLMediaElement, volume: number): void {
+  // iOS Safari ignores volume; muted still silences it.
+  const muted = volume === 0;
+
+  if (element.volume !== volume) element.volume = volume;
+  if (element.muted !== muted) element.muted = muted;
 }

@@ -1,4 +1,9 @@
-import type { WayloVoice, WayloVoiceError, WayloVoiceState } from '../../src/index.js';
+import type {
+  WayloVoice,
+  WayloVoiceError,
+  WayloVoiceState,
+  WayloVoiceTranscript,
+} from '../../src/index.js';
 
 import { lastRoom } from './fake-room.js';
 import { createCall, START } from './fake-session-endpoint.js';
@@ -18,10 +23,12 @@ export async function activeCall() {
 
 export function record(call: WayloVoice) {
   const errors: WayloVoiceError[] = [];
+  const lines: WayloVoiceTranscript[] = [];
   const states: WayloVoiceState[] = [];
 
   call.on('error', error => errors.push(error));
   call.on('state', state => states.push(state));
+  call.on('transcript', line => lines.push(line));
 
-  return { errors, states };
+  return { errors, lines, states };
 }

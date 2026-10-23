@@ -12,6 +12,7 @@ export const WAYLO_VOICE_ERROR_CODES = [
   'MICROPHONE_DENIED',
   'MICROPHONE_UNAVAILABLE',
   'SESSION_EXPIRED',
+  'TRANSCRIPT_FAILED',
 ] as const;
 
 /** Why a call failed. Codes stay fixed; messages may change. */
@@ -31,6 +32,7 @@ const MESSAGES: Record<WayloVoiceErrorCode, string> = {
   MICROPHONE_DENIED: 'Microphone access was denied.',
   MICROPHONE_UNAVAILABLE: 'No usable microphone was found.',
   SESSION_EXPIRED: 'The session has expired or was rejected; start a new call.',
+  TRANSCRIPT_FAILED: 'A live transcript line could not be read.',
 };
 
 const REDACTED = '[redacted]';

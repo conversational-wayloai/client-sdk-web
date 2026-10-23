@@ -32,6 +32,8 @@ export interface WayloVoiceEvents {
   error: WayloVoiceError;
   /** The whole snapshot, on every change. */
   state: WayloVoiceState;
+  /** A transcript line, sent again as it grows. */
+  transcript: WayloVoiceTranscript;
 }
 
 /** A snapshot of the call. */
@@ -50,6 +52,18 @@ export interface WayloVoiceState {
   readonly sessionId?: string;
   /** Agent volume, 0 to 1. */
   readonly volume: number;
+}
+
+/** One spoken line, sent again as it grows. */
+export interface WayloVoiceTranscript {
+  /** True once the line stops changing. */
+  readonly final: boolean;
+  /** Stable for one spoken line; replace the row with the same id. */
+  readonly id: string;
+  /** Who said the line. */
+  readonly speaker: 'agent' | 'user';
+  /** The whole line so far. */
+  readonly text: string;
 }
 
 export const INITIAL_STATE: WayloVoiceState = Object.freeze({

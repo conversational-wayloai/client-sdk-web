@@ -41,7 +41,9 @@ import {
   type WayloVoiceEnd,
   type WayloVoiceEvents,
   type WayloVoiceState,
+  type WayloVoiceTranscript,
 } from './state.js';
+import { listenToTranscripts, TRANSCRIPTION_TOPIC } from './transcripts.js';
 
 interface CallInspection {
   readonly error: WayloVoiceError | undefined;
@@ -92,6 +94,7 @@ export class WayloVoice {
   readonly #audio = new RemoteAudio();
   readonly #phaseEvents = new Emitter<PhaseEvents>();
   readonly #events = new Emitter<WayloVoiceEvents>();
+  readonly #transcriptAbort = new AbortController();
   readonly #cleanups: (() => void)[] = [];
   #phase: CallPhase = 'idle';
   #state: WayloVoiceState = INITIAL_STATE;
@@ -380,9 +383,19 @@ export class WayloVoice {
   }
 
   #listenToRoom(room: Room): void {
+    this.#listenToTranscripts(room);
     this.#listenToAudio(room);
     this.#listenToConnection(room);
     this.#listenToAgent(room);
+  }
+
+  #listenToTranscripts(room: Room): void {
+    listenToTranscripts(room, this.#transcriptAbort.signal, {
+      getSessionId: () => this.#state.sessionId,
+      onError: error => this.#emitError(error),
+      onTranscript: line => this.#emitTranscript(line),
+    });
+    this.#cleanups.push(() => room.unregisterTextStreamHandler(TRANSCRIPTION_TOPIC));
   }
 
   #listenToAudio(room: Room): void {
@@ -519,6 +532,7 @@ export class WayloVoice {
   async #disconnectRoom(): Promise<void> {
     const room = this.#room;
 
+    this.#transcriptAbort.abort();
     if (!room) return;
     this.#audio.clear();
 
@@ -574,6 +588,10 @@ export class WayloVoice {
 
   #emitError(error: WayloVoiceError): void {
     if (!this.#ending) this.#events.emit('error', error);
+  }
+
+  #emitTranscript(line: WayloVoiceTranscript): void {
+    if (!this.#ending) this.#events.emit('transcript', line);
   }
 
   #isLive(): boolean {

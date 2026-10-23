@@ -178,6 +178,35 @@
         color: #c62828;
       }
 
+      #transcript {
+        height: 18rem;
+        overflow-y: auto;
+        margin: 1rem 0;
+        padding: 0.5rem;
+        border: 1px solid #ddd;
+        border-radius: 0.5rem;
+        background: #fafafa;
+      }
+      #transcript p {
+        width: fit-content;
+        max-width: 80%;
+        margin: 0.25rem 0;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.5rem;
+      }
+      #transcript .user {
+        background: color-mix(in srgb, var(--accent) 10%, #fff);
+        border: 1px solid var(--accent);
+        margin-left: auto;
+        text-align: right;
+      }
+      #transcript .agent {
+        background: #eaeaea;
+      }
+      #transcript .draft {
+        color: #888;
+        font-style: italic;
+      }
       #events {
         max-height: 12rem;
         overflow: auto;
@@ -215,6 +244,9 @@
       </p>
       <p id="error" role="alert" hidden></p>
       <div id="end-summary" class="muted" data-testid="call-end" hidden></div>
+      <section id="transcript" aria-label="Transcript" data-testid="transcript">
+        <p id="thinking" class="agent" aria-label="Thinking" hidden>…</p>
+      </section>
       <details>
         <summary>Events</summary>
         <ol id="events" class="muted" reversed data-testid="event-log"></ol>

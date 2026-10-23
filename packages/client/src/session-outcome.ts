@@ -1,6 +1,6 @@
 import { DisconnectReason } from 'livekit-client';
 
-export type CallState =
+export type CallPhase =
   'active' | 'ended' | 'failed' | 'idle' | 'starting' | 'stopped' | 'stopping';
 
 export type DisconnectDecision = 'abort_start' | 'end' | 'fail' | 'ignore';
@@ -8,8 +8,8 @@ export type DisconnectDecision = 'abort_start' | 'end' | 'fail' | 'ignore';
 export interface DisconnectInput {
   isConnected: boolean;
   outcome: SessionOutcome | null;
+  phase: CallPhase;
   reason: DisconnectReason | undefined;
-  state: CallState;
 }
 
 // Mirrors SESSION_END_REASONS in application packages/api/src/common/session-lifecycle.ts.
@@ -55,13 +55,13 @@ export function decideAgentLeft(outcome: SessionOutcome | null): 'end' | 'fail' 
 export function decideDisconnect({
   isConnected,
   outcome,
+  phase,
   reason,
-  state,
 }: DisconnectInput): DisconnectDecision {
   // Before connect resolves, the pending connect() rejects with the real cause (a 401 must stay
   // SESSION_EXPIRED), so the event adds nothing.
-  if (state === 'starting') return isConnected ? 'abort_start' : 'ignore';
-  if (state !== 'active') return 'ignore';
+  if (phase === 'starting') return isConnected ? 'abort_start' : 'ignore';
+  if (phase !== 'active') return 'ignore';
   if (outcome) return outcome.state === 'error' ? 'fail' : 'end';
 
   return reason !== undefined && ERROR_DISCONNECT_REASONS.has(reason) ? 'fail' : 'end';

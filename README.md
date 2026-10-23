@@ -36,7 +36,27 @@ await wayloVoice.start({
 await wayloVoice.stop();
 ```
 
-Call `start()` from a click handler so the browser allows audio playback. A `WayloVoice` starts once; create a new one for the next call.
+Call `start()` from a click handler so the browser allows audio playback. It resolves once the agent is ready (listening, thinking or speaking). A `WayloVoice` starts once; create a new one (with its own listeners) for the next call.
+
+`stop()` is safe at any time. During `start()` it makes `start()` reject with `CANCELLED`; after that it ends the call with reason `caller_hangup`.
+
+### State
+
+```ts
+wayloVoice.on('state', state => render(state)); // the whole snapshot on every change
+wayloVoice.on('error', error => console.warn(error.code));
+```
+
+| State field | Values |
+| --- | --- |
+| `connection` | `idle`, `connecting`, `connected`, `reconnecting`, `disconnected` |
+| `agent` | `none`, `joining`, `listening`, `thinking`, `speaking` |
+| `microphone` | `off`, `on` |
+| `playback` | `stopped`, `playing`, `blocked` |
+| `sessionId` | the Waylo session id, once known |
+| `end` | set once when the call is over: `{ status: 'completed', reason? }` or `{ status: 'failed', reason?, error }`; `reason` uses the API's session end reasons |
+
+`getState()` returns the same snapshot. `on()` returns an unsubscribe function; `off()` works too. After the final `state` (the one with `end`) nothing more is emitted, whoever ended the call. `end` is what this browser saw; the stored session (`GET /sessions/:id`) is the record.
 
 For a token-based app, add `headers`. The SDK calls it once per `start()` and sends the result only to `sessionEndpoint`. It never logs these headers or puts them in errors.
 
@@ -51,7 +71,7 @@ const wayloVoice = new WayloVoice({
 | --- | --- |
 | `sessionEndpoint` | Required. Your backend route that returns a session (see below). Same-origin only (enforced). |
 | `headers` | Optional. `() => Record<string, string>` or a promise of one. Extra request headers. |
-| `agentTimeoutMs` | Optional. How long `start()` waits for the agent to join. Default 20000. |
+| `agentTimeoutMs` | Optional. How long `start()` waits for the agent to be ready. Default 20000. |
 
 ## Your session endpoint
 
@@ -119,9 +139,9 @@ The session body has this shape (the SDK checks it; your page never sees it):
 
 ## Errors
 
-`start()` rejects with a `WayloVoiceError`. Branch on its `code`, never on the message. The codes are:
+`start()` rejects with a `WayloVoiceError`; problems after start come as `error` events and in `state.end.error`. Use its `code` to decide what to do, not its message; codes stay fixed, messages may change. The codes are:
 
-`AUTH_REQUIRED`, `ACCESS_DENIED`, `LIMIT_REACHED`, `INVALID_SESSION`, `SESSION_EXPIRED`, `CONNECTION_FAILED`, `MICROPHONE_DENIED`, `MICROPHONE_UNAVAILABLE`, `AGENT_TIMEOUT`, `AGENT_LEFT`, `ALREADY_STARTED`, `CANCELLED`.
+`AUTH_REQUIRED`, `ACCESS_DENIED`, `LIMIT_REACHED`, `INVALID_SESSION`, `SESSION_EXPIRED`, `CONNECTION_FAILED`, `MICROPHONE_DENIED`, `MICROPHONE_UNAVAILABLE`, `AGENT_TIMEOUT`, `AGENT_LEFT`, `AGENT_ERROR`, `ALREADY_STARTED`, `CANCELLED`.
 
 The troubleshooting section of the [example README](example/README.md) says what to do about each one.
 

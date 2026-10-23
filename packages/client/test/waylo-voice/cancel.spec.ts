@@ -12,9 +12,9 @@ import {
 } from '../__setup__/fake-session-endpoint.js';
 
 async function expectCancelledAndClean(call: WayloVoice, started: Promise<void>) {
-  const states: string[] = [];
+  const phases: string[] = [];
 
-  inspectCall(call).onState(state => states.push(state));
+  inspectCall(call).onPhase(phase => phases.push(phase));
   await call.stop();
   await expect(errorCodeFrom(started)).resolves.toBe('CANCELLED');
   await flush();
@@ -25,7 +25,7 @@ async function expectCancelledAndClean(call: WayloVoice, started: Promise<void>)
   expect(room.disconnect).toHaveBeenCalledTimes(1);
   expect(audioElements()).toBe(0);
   expect(isMicLeftLive()).toBe(false);
-  expect(states).toEqual(['stopping', 'stopped']);
+  expect(phases).toEqual(['stopping', 'stopped']);
   expect(inspectCall(call).error).toBeUndefined();
 }
 
@@ -59,7 +59,7 @@ describe('WayloVoice', () => {
       await flush();
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(lastRoom().connect).not.toHaveBeenCalled();
-      expect(lastRoom().localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
     });
 
     it('cancels while headers() is pending and never calls the endpoint', async () => {
@@ -80,7 +80,7 @@ describe('WayloVoice', () => {
       const started = call.start(START);
 
       await expectCancelledAndClean(call, started);
-      expect(lastRoom().localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
     });
 
     it('disconnects the room during connect so the pending connect rejects', async () => {
@@ -95,11 +95,11 @@ describe('WayloVoice', () => {
       await expectCancelledAndClean(call, started);
       gate.resolve();
       await flush();
-      expect(lastRoom().localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
       expect(lastRoom().state).toBe('disconnected');
     });
 
-    it('stops a mic track that arrives after the cancel', async () => {
+    it('stops and never publishes a mic track that arrives after the cancel', async () => {
       const gate = deferred();
 
       behavior.microphone = () => gate.promise;
@@ -107,13 +107,14 @@ describe('WayloVoice', () => {
       const started = call.start(START);
 
       await flush();
-      expect(lastRoom().localParticipant.setMicrophoneEnabled).toHaveBeenCalledTimes(1);
+      expect(lastRoom().localParticipant.createTracks).toHaveBeenCalledWith({ audio: true });
       await expectCancelledAndClean(call, started);
       gate.resolve();
       await flush();
       expect(lastRoom().localParticipant.microphoneTracks).toHaveLength(1);
+      expect(lastRoom().localParticipant.publishTrack).not.toHaveBeenCalled();
       expect(isMicLeftLive()).toBe(false);
-      expect(inspectCall(call).state).toBe('stopped');
+      expect(inspectCall(call).phase).toBe('stopped');
     });
 
     it('reports cancelled when the mic fails after the cancel', async () => {
@@ -135,10 +136,10 @@ describe('WayloVoice', () => {
       const started = call.start(START);
 
       await flush();
-      expect(lastRoom().localParticipant.setMicrophoneEnabled).toHaveBeenCalledTimes(1);
+      expect(lastRoom().localParticipant.publishTrack).toHaveBeenCalledTimes(1);
       await expectCancelledAndClean(call, started);
       lastRoom().addAgent();
-      expect(inspectCall(call).state).toBe('stopped');
+      expect(inspectCall(call).phase).toBe('stopped');
       expect(audioElements()).toBe(0);
     });
 
@@ -169,7 +170,7 @@ describe('WayloVoice', () => {
       await expect(errorCodeFrom(started)).resolves.toBe('CANCELLED');
       expect(vi.getTimerCount()).toBe(0);
       await vi.advanceTimersByTimeAsync(15_000);
-      expect(inspectCall(call).state).toBe('stopped');
+      expect(inspectCall(call).phase).toBe('stopped');
       expect(inspectCall(call).error).toBeUndefined();
     });
 
@@ -180,7 +181,7 @@ describe('WayloVoice', () => {
       await call.stop();
       await expect(errorCodeFrom(started)).resolves.toBe('CANCELLED');
       await expect(errorCodeFrom(call.start(START))).resolves.toBe('ALREADY_STARTED');
-      expect(inspectCall(call).state).toBe('stopped');
+      expect(inspectCall(call).phase).toBe('stopped');
     });
   });
 });

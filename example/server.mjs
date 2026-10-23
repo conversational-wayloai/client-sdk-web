@@ -10,6 +10,8 @@ const UPSTREAM_TIMEOUT_MS = 10_000;
 const FILES = {
   '/': ['public/index.html', 'text/html; charset=utf-8'],
   '/app.js': ['dist/app.js', 'text/javascript; charset=utf-8'],
+  '/brand/favicon.png': ['public/brand/favicon.png', 'image/png'],
+  '/brand/logo.svg': ['public/brand/logo.svg', 'image/svg+xml'],
 };
 
 const missing = Object.entries({ AGENT_ID, WAYLO_API_KEY, WAYLO_API_URL, WORKSPACE_ID })

@@ -13,6 +13,7 @@ describe('WAYLO_VOICE_ERROR_CODES', () => {
   it('pins the public error codes', () => {
     expect(WAYLO_VOICE_ERROR_CODES).toEqual([
       'ACCESS_DENIED',
+      'AGENT_ERROR',
       'AGENT_LEFT',
       'AGENT_TIMEOUT',
       'ALREADY_STARTED',

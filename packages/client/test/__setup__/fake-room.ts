@@ -35,6 +35,7 @@ export const behavior = {
   connect: (): Promise<void> => Promise.resolve(),
   microphone: (): Promise<void> => Promise.resolve(),
   agent: 'present' as 'present' | 'later',
+  agentState: 'listening' as string | undefined,
   agentTracks: 1,
 };
 
@@ -51,6 +52,8 @@ export class FakeRoom {
     FakeRoom.instances.push(this);
     this.#disconnected.promise.catch(() => undefined);
   }
+
+  canPlaybackAudio = true;
 
   startAudio = vi.fn(() => Promise.resolve());
 
@@ -104,6 +107,7 @@ export class FakeRoom {
   addAgent(identity = 'agent'): FakeRemoteParticipant {
     const agent = createRemoteParticipant(identity, true);
 
+    if (behavior.agentState) agent.attributes['lk.agent.state'] = behavior.agentState;
     this.remoteParticipants.set(identity, agent);
     this.emit('participantConnected', agent);
 
@@ -133,6 +137,19 @@ export class FakeRoom {
     this.emit('participantDisconnected', participant, reason);
   }
 
+  setAttributes(identity: string, attributes: Record<string, string>): void {
+    const participant = this.remoteParticipants.get(identity);
+
+    if (!participant) throw new Error(`no participant ${identity}`);
+    participant.attributes = { ...participant.attributes, ...attributes };
+    this.emit('participantAttributesChanged', attributes, participant);
+  }
+
+  setPlayback(canPlay: boolean): void {
+    this.canPlaybackAudio = canPlay;
+    this.emit('audioPlaybackChanged', canPlay);
+  }
+
   serverDisconnect(reason?: number): void {
     this.state = 'disconnected';
     this.emit('disconnected', reason);
@@ -159,6 +176,7 @@ export function resetBehavior(): void {
   behavior.connect = () => Promise.resolve();
   behavior.microphone = () => Promise.resolve();
   behavior.agent = 'present';
+  behavior.agentState = 'listening';
   behavior.agentTracks = 1;
   FakeRoom.instances.length = 0;
 }

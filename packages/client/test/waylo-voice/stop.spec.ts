@@ -25,7 +25,7 @@ describe('WayloVoice', () => {
       expect(document.body.children).toHaveLength(0);
       expect(mic?.stop).toHaveBeenCalled();
       expect(mic?.mediaStreamTrack.readyState).toBe('ended');
-      expect(inspectCall(call).state).toBe('stopped');
+      expect(inspectCall(call).phase).toBe('stopped');
     });
 
     it('is safe to call twice, including concurrently', async () => {
@@ -35,7 +35,7 @@ describe('WayloVoice', () => {
       await Promise.all([call.stop(), call.stop()]);
       await call.stop();
       expect(lastRoom().disconnect).toHaveBeenCalledTimes(1);
-      expect(inspectCall(call).state).toBe('stopped');
+      expect(inspectCall(call).phase).toBe('stopped');
     });
 
     it('is a no-op before start()', async () => {
@@ -43,7 +43,7 @@ describe('WayloVoice', () => {
 
       await call.stop();
       expect(FakeRoom.instances).toHaveLength(0);
-      expect(inspectCall(call).state).toBe('idle');
+      expect(inspectCall(call).phase).toBe('idle');
     });
 
     it('detaches audio tracks the agent unpublishes mid-call', async () => {
@@ -70,7 +70,7 @@ describe('WayloVoice', () => {
       await expect(call.stop()).resolves.toBeUndefined();
       await expect(errorCodeFrom(call.start(START))).resolves.toBe('ALREADY_STARTED');
       expect(FakeRoom.instances).toHaveLength(1);
-      expect(inspectCall(call).state).toBe('stopped');
+      expect(inspectCall(call).phase).toBe('stopped');
     });
 
     it('rejects with ALREADY_STARTED after the call ended', async () => {
@@ -78,10 +78,10 @@ describe('WayloVoice', () => {
 
       await call.start(START);
       lastRoom().serverDisconnect();
-      expect(inspectCall(call).state).toBe('ended');
+      expect(inspectCall(call).phase).toBe('ended');
       await expect(errorCodeFrom(call.start(START))).resolves.toBe('ALREADY_STARTED');
       await call.stop();
-      expect(inspectCall(call).state).toBe('ended');
+      expect(inspectCall(call).phase).toBe('ended');
     });
 
     it('rejects with ALREADY_STARTED after start() failed', async () => {
@@ -89,10 +89,10 @@ describe('WayloVoice', () => {
 
       serveSession({});
       await expect(errorCodeFrom(call.start(START))).resolves.toBe('INVALID_SESSION');
-      expect(inspectCall(call).state).toBe('failed');
+      expect(inspectCall(call).phase).toBe('failed');
       await expect(errorCodeFrom(call.start(START))).resolves.toBe('ALREADY_STARTED');
       await expect(call.stop()).resolves.toBeUndefined();
-      expect(inspectCall(call).state).toBe('failed');
+      expect(inspectCall(call).phase).toBe('failed');
     });
   });
 

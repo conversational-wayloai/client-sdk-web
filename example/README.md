@@ -11,6 +11,7 @@ import { WayloVoice } from '@waylovoice/client';
 
 const wayloVoice = new WayloVoice({ sessionEndpoint: '/api/waylo/session' });
 
+wayloVoice.on('state', render);
 await wayloVoice.start({ agentId }); // agentId comes from GET /api/example/agent
 await wayloVoice.stop();
 ```
@@ -55,10 +56,12 @@ While editing `src/main.ts`, run `pnpm dev:example` in a second terminal to rebu
 
 ## What you should see
 
-1. Click **Talk**. The status shows `connecting`.
+1. Click **Talk**. The status shows **Connecting**.
 2. The browser asks for the microphone. Allow it.
-3. The status shows `connected, agent joined` and the assistant greets you.
-4. Click **Hang up**. The browser's microphone indicator turns off.
+3. The agent greets you: the status shows **Speaking**, then **Listening** and **Thinking** as you talk.
+4. Click **Hang up** (or say goodbye and let the agent end the call). A summary shows how the call ended, its length and the session id, and the microphone indicator turns off.
+
+The event log at the bottom numbers each call, so a late event from an old call would stand out.
 
 ## How the server works
 
@@ -104,8 +107,9 @@ Errors from the SDK (`WayloVoiceError.code`):
 | `CONNECTION_FAILED` | The session endpoint failed, could not be reached or did not answer within 15 s, or the call dropped. Check the server terminal and your network. |
 | `MICROPHONE_DENIED` | Allow microphone access in the browser and try again. |
 | `MICROPHONE_UNAVAILABLE` | Connect a microphone, close other apps using it, and try again. |
-| `AGENT_TIMEOUT` | The assistant didn't join in time. Try again. |
-| `AGENT_LEFT` | The assistant ended the call. Click **Talk** to start a new one. |
+| `AGENT_TIMEOUT` | The agent didn't get ready in time. Try again. |
+| `AGENT_LEFT` | The agent left the call without ending it. Click **Talk** to start a new one. |
+| `AGENT_ERROR` | The agent hit an error and ended the call. `state.end.reason` says why, e.g. `worker_error`. |
 | `CANCELLED` | The call was stopped while it was starting. |
 | `ALREADY_STARTED` | Each `WayloVoice` starts once. Create a new `WayloVoice` for each call. |
 
@@ -114,8 +118,9 @@ Errors from the SDK (`WayloVoiceError.code`):
 | File | Role |
 | --- | --- |
 | `server.mjs` | Your backend: `GET /api/example/agent` and the session endpoint `POST /api/waylo/session`. |
-| `src/main.ts` | Your page code: starts and stops the call with the SDK. |
+| `src/main.ts` | Your page code: starts and stops the call and shows its state. |
 | `public/index.html` | The page markup. |
+| `public/brand/` | Waylo logo and favicon, copied from the dashboard. |
 
 ## Security
 

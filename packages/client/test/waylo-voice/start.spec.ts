@@ -6,8 +6,10 @@ import {
 } from 'livekit-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { WayloVoice } from '../../src/index.js';
 import { inspectCall } from '../../src/waylo-voice.js';
-import { everyErrorSurface, wayloVoiceErrorFrom } from '../__setup__/errors.js';
+import { record } from '../__setup__/active-call.js';
+import { everyErrorSurface, jsonWithErrors, wayloVoiceErrorFrom } from '../__setup__/errors.js';
 import {
   audioElements,
   behavior,
@@ -44,6 +46,12 @@ function expectCleanedUp(room: FakeRoom) {
   expect(room.listenerCount()).toBe(0);
 }
 
+function recordPublicOutput(call: WayloVoice): () => string {
+  const events = record(call);
+
+  return () => jsonWithErrors([events, call.getState()]);
+}
+
 beforeEach(() => {
   vi.useRealTimers();
 });
@@ -52,9 +60,9 @@ describe('WayloVoice', () => {
   describe('start()', () => {
     it('connects, enables the mic, plays agent audio and resolves when the agent is in', async () => {
       const call = createCall();
-      const states: string[] = [];
+      const phases: string[] = [];
 
-      inspectCall(call).onState(state => states.push(state));
+      inspectCall(call).onPhase(phase => phases.push(phase));
 
       await call.start(START);
       const room = lastRoom();
@@ -62,9 +70,13 @@ describe('WayloVoice', () => {
       expect(room.options).toEqual({ adaptiveStream: false, dynacast: false });
       expect(room.startAudio).toHaveBeenCalledTimes(1);
       expect(room.connect).toHaveBeenCalledWith(TEST_LIVEKIT_URL, TEST_PARTICIPANT_TOKEN, {});
-      expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true);
+      expect(room.localParticipant.createTracks).toHaveBeenCalledWith({ audio: true });
+      expect(room.localParticipant.publishTrack).toHaveBeenCalledWith(
+        room.localParticipant.microphoneTracks[0],
+      );
+      expect(call.getState().microphone).toBe('on');
       expect(audioElements()).toBe(1);
-      expect(states).toEqual(['starting', 'active']);
+      expect(phases).toEqual(['starting', 'active']);
     });
 
     it('creates the room and unlocks audio synchronously, before fetching the session', async () => {
@@ -87,7 +99,7 @@ describe('WayloVoice', () => {
       };
 
       await createCall().start(START);
-      expect(listenersAtConnect).toBe(4);
+      expect(listenersAtConnect).toBe(9);
     });
 
     it('forces relay ICE through the TURN server when the session has one', async () => {
@@ -116,7 +128,7 @@ describe('WayloVoice', () => {
       const call = createCall({ agentTimeoutMs: 1000 });
 
       await call.start(START);
-      expect(inspectCall(call).state).toBe('active');
+      expect(inspectCall(call).phase).toBe('active');
       expect(vi.getTimerCount()).toBe(0);
     });
 
@@ -134,7 +146,7 @@ describe('WayloVoice', () => {
       expect(isResolved).toBe(false);
       lastRoom().addAgent();
       await started;
-      expect(inspectCall(call).state).toBe('active');
+      expect(inspectCall(call).phase).toBe('active');
       expect(audioElements()).toBe(1);
     });
 
@@ -145,12 +157,12 @@ describe('WayloVoice', () => {
       const started = call.start(START);
 
       await vi.advanceTimersByTimeAsync(4999);
-      expect(inspectCall(call).state).toBe('starting');
+      expect(inspectCall(call).phase).toBe('starting');
       await vi.advanceTimersByTimeAsync(1);
       const { code } = await wayloVoiceErrorFrom(started);
 
       expect(code).toBe('AGENT_TIMEOUT');
-      expect(inspectCall(call).state).toBe('failed');
+      expect(inspectCall(call).phase).toBe('failed');
       expectCleanedUp(lastRoom());
     });
 
@@ -173,15 +185,15 @@ describe('WayloVoice', () => {
       const started = call.start(START);
 
       await vi.advanceTimersByTimeAsync(14_999);
-      expect(inspectCall(call).state).toBe('starting');
+      expect(inspectCall(call).phase).toBe('starting');
       await vi.advanceTimersByTimeAsync(1);
       const { code } = await wayloVoiceErrorFrom(started);
       const room = lastRoom();
 
       expect(code).toBe('CONNECTION_FAILED');
-      expect(inspectCall(call).state).toBe('failed');
+      expect(inspectCall(call).phase).toBe('failed');
       expect(room.connect).not.toHaveBeenCalled();
-      expect(room.localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+      expect(room.localParticipant.createTracks).not.toHaveBeenCalled();
       expectCleanedUp(room);
     });
 
@@ -197,7 +209,7 @@ describe('WayloVoice', () => {
       answer.resolve(sessionResponse());
       await started;
 
-      expect(inspectCall(call).state).toBe('active');
+      expect(inspectCall(call).phase).toBe('active');
       expect(vi.getTimerCount()).toBe(0);
     });
 
@@ -212,7 +224,7 @@ describe('WayloVoice', () => {
 
       expect(error.code).toBe(code);
       expect(MediaDeviceFailure.getFailure(error.cause)).toBeDefined();
-      expect(inspectCall(call).state).toBe('failed');
+      expect(inspectCall(call).phase).toBe('failed');
       expectCleanedUp(lastRoom());
     });
 
@@ -225,6 +237,18 @@ describe('WayloVoice', () => {
       const error = await wayloVoiceErrorFrom(createCall().start(START));
 
       expect(error.code).toBe(code);
+    });
+
+    it('fails with MICROPHONE_UNAVAILABLE when LiveKit creates no mic track', async () => {
+      const call = createCall();
+      const started = call.start(START);
+
+      lastRoom().localParticipant.createTracks.mockResolvedValueOnce([]);
+      const error = await wayloVoiceErrorFrom(started);
+
+      expect(error.code).toBe('MICROPHONE_UNAVAILABLE');
+      expect(lastRoom().localParticipant.publishTrack).not.toHaveBeenCalled();
+      expectCleanedUp(lastRoom());
     });
 
     it('rejects a session more than 60 s past expiresAt without connecting', async () => {
@@ -273,7 +297,7 @@ describe('WayloVoice', () => {
       const error = await wayloVoiceErrorFrom(call.start(START));
 
       expect(error.code).toBe('CONNECTION_FAILED');
-      expect(lastRoom().localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
       expectCleanedUp(lastRoom());
     });
 
@@ -286,12 +310,12 @@ describe('WayloVoice', () => {
 
       await flush();
       lastRoom().serverDisconnect(DisconnectReason.JOIN_FAILURE);
-      expect(inspectCall(call).state).toBe('starting');
+      expect(inspectCall(call).phase).toBe('starting');
       gate.reject(ConnectionError.notAllowed('invalid token', 401));
       const error = await wayloVoiceErrorFrom(started);
 
       expect(error.code).toBe('SESSION_EXPIRED');
-      expect(inspectCall(call).state).toBe('failed');
+      expect(inspectCall(call).phase).toBe('failed');
       expectCleanedUp(lastRoom());
     });
 
@@ -308,13 +332,14 @@ describe('WayloVoice', () => {
 
       expect(error.code).toBe('CONNECTION_FAILED');
       expect(error.cause).toMatchObject({ disconnectReason: 'SIGNAL_CLOSE' });
-      expect(inspectCall(call).state).toBe('failed');
+      expect(inspectCall(call).phase).toBe('failed');
       expectCleanedUp(lastRoom());
       gate.resolve();
       await flush();
-      expect(lastRoom().localParticipant.microphone?.track.mediaStreamTrack.readyState).toBe(
+      expect(lastRoom().localParticipant.microphoneTracks[0]?.mediaStreamTrack.readyState).toBe(
         'ended',
       );
+      expect(lastRoom().localParticipant.publishTrack).not.toHaveBeenCalled();
     });
 
     it('rejects an invalid session with INVALID_SESSION', async () => {
@@ -340,12 +365,12 @@ describe('WayloVoice', () => {
       const call = createCall();
 
       await expect(call.start(options as never)).rejects.toThrow(RangeError);
-      expect(inspectCall(call).state).toBe('idle');
+      expect(inspectCall(call).phase).toBe('idle');
       expect(FakeRoom.instances).toHaveLength(0);
       expect(fetchMock).not.toHaveBeenCalled();
 
       await call.start(START);
-      expect(inspectCall(call).state).toBe('active');
+      expect(inspectCall(call).phase).toBe('active');
     });
 
     it('rejects a second start() with ALREADY_STARTED', async () => {
@@ -418,10 +443,10 @@ describe('WayloVoice', () => {
         const error = await wayloVoiceErrorFrom(call.start(START));
 
         expect(error.code).toBe(code);
-        expect(inspectCall(call).state).toBe('failed');
+        expect(inspectCall(call).phase).toBe('failed');
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(lastRoom().connect).not.toHaveBeenCalled();
-        expect(lastRoom().localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+        expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
         expectCleanedUp(lastRoom());
       },
     );
@@ -432,9 +457,9 @@ describe('WayloVoice', () => {
       const error = await wayloVoiceErrorFrom(call.start(START));
 
       expect(error.code).toBe('AUTH_REQUIRED');
-      expect(inspectCall(call).state).toBe('failed');
+      expect(inspectCall(call).phase).toBe('failed');
       expect(lastRoom().connect).not.toHaveBeenCalled();
-      expect(lastRoom().localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
       expectCleanedUp(lastRoom());
     });
 
@@ -483,13 +508,12 @@ describe('WayloVoice', () => {
       sessionEndpoint.respond = () =>
         Promise.reject(new TypeError(`request with ${HEADER_SECRET} failed`));
       const call = createCall({ headers: () => ({ Authorization: HEADER_SECRET }) });
-      const states: string[] = [];
-
-      inspectCall(call).onState(state => states.push(state));
+      const publicOutput = recordPublicOutput(call);
       const error = await wayloVoiceErrorFrom(call.start(START));
 
+      expect(call.getState().end?.status).toBe('failed');
       expect(everyErrorSurface(error)).not.toContain(HEADER_SECRET);
-      expect(JSON.stringify(states)).not.toContain(HEADER_SECRET);
+      expect(publicOutput()).not.toContain(HEADER_SECRET);
 
       for (const spy of consoleSpies) {
         expect(JSON.stringify(spy.mock.calls)).not.toContain(HEADER_SECRET);
@@ -500,7 +524,7 @@ describe('WayloVoice', () => {
     it('exposes no connection details in the return value, states, errors or the instance', async () => {
       serveSession(webSessionBootstrap({ turn: TEST_TURN_SERVER }));
       const call = createCall();
-      const states: string[] = [];
+      const publicOutput = recordPublicOutput(call);
       const secrets = [
         TEST_LIVEKIT_URL,
         TEST_PARTICIPANT_TOKEN,
@@ -508,21 +532,21 @@ describe('WayloVoice', () => {
         TEST_TURN_SERVER.username,
       ];
 
-      inspectCall(call).onState(state => states.push(state));
       const result = await call.start(START);
 
       lastRoom().serverDisconnect(DisconnectReason.SIGNAL_CLOSE);
-      const { error } = inspectCall(call);
+      await flush();
+      const { end } = call.getState();
       const surfaces = [
         JSON.stringify(result ?? null),
-        JSON.stringify(states),
+        publicOutput(),
         JSON.stringify(call),
         Object.keys(call).join(','),
-        error ? everyErrorSurface(error) : '',
+        end?.status === 'failed' ? everyErrorSurface(end.error) : '',
       ].join('\n');
 
       expect(result).toBeUndefined();
-      expect(error?.code).toBe('CONNECTION_FAILED');
+      expect(end).toMatchObject({ error: { code: 'CONNECTION_FAILED' }, status: 'failed' });
 
       for (const secret of secrets) expect(surfaces).not.toContain(secret);
     });

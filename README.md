@@ -144,6 +144,8 @@ Answer `401` and `403` as JSON; never redirect. Any redirect fails with `AUTH_RE
 
 A `200` whose body is not a valid session fails with `INVALID_SESSION`. The SDK never falls back to any other (public) way of starting a call when your endpoint fails.
 
+A session is a short-lived pass to join the call, so return it as soon as Waylo answers; never cache or reuse one. If the pass runs out before the browser joins, `start()` fails with `SESSION_EXPIRED`: the visitor waited too long and should click again.
+
 **Retries are your backend's job.** If you retry `POST /sessions/web`, send the same `Idempotency-Key` again, bound to the logged-in user. Do not pass a Waylo `401` or `403` on as is: those are about your key, not your visitor.
 
 ```ts

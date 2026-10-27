@@ -17,6 +17,7 @@ export const SESSION_END_REASONS = [
   'caller_hangup',
   'caller_inactive',
   'caller_goodbye',
+  'caller_not_joined',
   'agent_end',
   'busy',
   'no_answer',

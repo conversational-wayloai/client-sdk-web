@@ -61,7 +61,8 @@ While editing `src/main.ts`, run `pnpm dev:example` in a second terminal to rebu
 2. The browser asks for the microphone. Allow it.
 3. The agent greets you: the status shows **Speaking**, then **Listening** and **Thinking** as you talk. Both sides appear as captions; grey lines are still changing.
 4. **Mic level**, under **Microphone**, lights up as you speak and stays flat while muted. **Mute my mic**, **Agent volume**, **Microphone** and **Speaker** apply at once; the device lists fill in once the microphone is allowed, or before a call with **Show microphone names**. Browsers that can't choose the speaker show a note instead. **Tap to hear the agent** shows only when the browser blocks sound.
-5. Click **Hang up** (or say goodbye and let the agent end the call). A summary shows how the call ended, its length and the session id, and the microphone indicator turns off.
+5. Once the agent is heard, **Start-up time** at the bottom shows how long that took after **Talk**, with each step as a bar on one timeline; steps can overlap.
+6. Click **Hang up** (or say goodbye and let the agent end the call). A summary shows how the call ended, its length and the session id, and the microphone indicator turns off.
 
 The event log at the bottom numbers each call, so a late event from an old call would stand out.
 

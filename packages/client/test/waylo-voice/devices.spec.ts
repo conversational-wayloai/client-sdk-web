@@ -82,7 +82,7 @@ describe('choosing devices before start()', () => {
     await expect(errorCodeFrom(call.start(START))).resolves.toBe('MICROPHONE_UNAVAILABLE');
   });
 
-  it('opens a mic chosen while the call connects', async () => {
+  it('switches to a mic chosen while the call connects', async () => {
     const connecting = deferred();
 
     behavior.connect = () => connecting.promise;
@@ -94,10 +94,8 @@ describe('choosing devices before start()', () => {
     connecting.resolve();
     await started;
 
-    expect(lastRoom().switchActiveDevice).not.toHaveBeenCalled();
-    expect(lastRoom().localParticipant.createTracks).toHaveBeenCalledWith({
-      audio: { deviceId: { exact: 'usb-mic' } },
-    });
+    expect(lastRoom().switchActiveDevice).toHaveBeenCalledWith('audioinput', 'usb-mic');
+    expect(call.getState().microphoneDeviceId).toBe('usb-mic');
   });
 
   it('switches to a mic chosen while the visitor answers the permission prompt', async () => {

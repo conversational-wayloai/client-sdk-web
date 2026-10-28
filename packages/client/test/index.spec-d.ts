@@ -16,6 +16,7 @@ import {
   type WayloVoicePlayback,
   type WayloVoiceStartOptions,
   type WayloVoiceState,
+  type WayloVoiceTimings,
   type WayloVoiceTranscript,
 } from '../src/index.js';
 import type { WebSessionBootstrap } from '../src/session.js';
@@ -105,6 +106,18 @@ describe('public API', () => {
     >();
     expectTypeOf<WayloVoiceState['microphoneDeviceId']>().toEqualTypeOf<string | undefined>();
     expectTypeOf<WayloVoiceState['speakerDeviceId']>().toEqualTypeOf<string | undefined>();
+  });
+
+  it('timings are milliseconds after start(), with the start as a wall-clock time', () => {
+    expectTypeOf<WayloVoiceState['timings']>().toEqualTypeOf<WayloVoiceTimings | undefined>();
+    expectTypeOf<WayloVoiceTimings>().toEqualTypeOf<{
+      readonly agentReadyMs?: number;
+      readonly agentSpeakingMs?: number;
+      readonly connectedMs?: number;
+      readonly microphoneReadyMs?: number;
+      readonly sessionReadyMs?: number;
+      readonly startedAt: number;
+    }>();
   });
 
   it('start() takes an agent id, not a session', () => {

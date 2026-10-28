@@ -72,8 +72,26 @@ export interface WayloVoiceState {
   readonly sessionId?: string;
   /** The speaker chosen, or the one in use once the call has it; unset or `'default'` means the system default. */
   readonly speakerDeviceId?: string;
+  /** How long each step of the call took, once `start()` was called. */
+  readonly timings?: WayloVoiceTimings;
   /** Agent volume, 0 to 1. */
   readonly volume: number;
+}
+
+/** Whole milliseconds after `start()` at which each step was reached, in any order. A step not reached is unset. */
+export interface WayloVoiceTimings {
+  /** The agent reported its first activity state, maybe before the microphone is ready. */
+  readonly agentReadyMs?: number;
+  /** The agent starts speaking while the browser may play its audio; the audio arrives a little later. */
+  readonly agentSpeakingMs?: number;
+  /** This browser joined the call. */
+  readonly connectedMs?: number;
+  /** The microphone is live in the call; it opens, permission prompt included, while the call connects. */
+  readonly microphoneReadyMs?: number;
+  /** The session endpoint answered. */
+  readonly sessionReadyMs?: number;
+  /** When `start()` was called, as `Date.now()`. */
+  readonly startedAt: number;
 }
 
 /** One spoken line, sent again as it grows. */

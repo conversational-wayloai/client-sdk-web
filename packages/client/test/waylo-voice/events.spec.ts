@@ -39,6 +39,7 @@ describe('WayloVoice state', () => {
       playback: 'playing',
       microphoneDeviceId: 'default',
       sessionId: 'session-1',
+      timings: expect.objectContaining({ agentReadyMs: expect.any(Number) }),
       volume: 1,
     });
     expect(states.at(-1)).toBe(call.getState());
@@ -130,6 +131,7 @@ describe('WayloVoice end of call', () => {
       playback: 'stopped',
       microphoneDeviceId: 'default',
       sessionId: 'session-1',
+      timings: expect.objectContaining({ agentReadyMs: expect.any(Number) }),
       volume: 1,
     });
     expect(states.filter(state => state.end)).toHaveLength(1);

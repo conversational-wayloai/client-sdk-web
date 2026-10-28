@@ -39,7 +39,7 @@ export const behavior = {
     _deviceId: string,
     _exact: boolean,
   ): Promise<boolean | void> => Promise.resolve(),
-  microphone: (_deviceId: string): Promise<void> => Promise.resolve(),
+  microphone: (_deviceId: string): Promise<boolean | void> => Promise.resolve(),
   agent: 'present' as 'present' | 'later',
   agentState: 'listening' as string | undefined,
   agentTracks: 1,

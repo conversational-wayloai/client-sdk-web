@@ -62,6 +62,7 @@ wayloVoice.getMicrophoneLevel(); // 0 to 1, for a mic meter; poll it with reques
 | `volume` | last `setVolume()` value, default 1 |
 | `sessionId` | the Waylo session id, once known |
 | `microphoneDeviceId`, `speakerDeviceId` | the chosen device, or the one in use once the call has it; unset or `'default'` means the system default |
+| `timings` | how long each step of the call took (see below), from `start()` on |
 | `end` | set once when the call is over: `{ status: 'completed', reason? }` or `{ status: 'failed', reason?, error }`; `reason` uses the API's session end reasons |
 
 `getState()` returns the same snapshot. `on()` returns an unsubscribe function; `off()` works too. After the final `state` (the one with `end`) nothing more is emitted, whoever ended the call. `end` is what this browser saw; the stored session (`GET /sessions/:id`) is the record.
@@ -96,6 +97,10 @@ if (canChooseSpeaker && speaker) await wayloVoice.setSpeakerDevice(speaker.devic
 ```
 
 `listDevices()` never asks for permission, so names (and, in most browsers, the list itself) appear only once the visitor has allowed the microphone; list again then, and on `navigator.mediaDevices`' `devicechange`. `listDevices({ requestPermission: true })` asks for the microphone first (call it from a click), closes it again and lists with names; it rejects with `MICROPHONE_DENIED` if the visitor blocks it. `canChooseSpeaker` is false where the browser can't route audio to a chosen speaker (Safari and every iOS browser); `setSpeakerDevice()` then rejects with `SPEAKER_UNAVAILABLE`. Firefox before 140 can choose a speaker but lists none, so treat an empty `speakers` list as no choice. A device chosen before `start()` that is gone by then falls back to the system default, and the state shows the device in use. Mid-call, a microphone that can't be opened rejects with `MICROPHONE_UNAVAILABLE` (`MICROPHONE_DENIED` when the browser blocks it) and the call keeps a working microphone where it can; a missing speaker rejects with `SPEAKER_UNAVAILABLE`. After an unplugged microphone (`error` event `MICROPHONE_UNAVAILABLE`), choose another to carry on. Safari can send that event when the system default microphone changes, then reopen the new default itself; `microphone` turns back to `on`.
+
+### Timings
+
+`state.timings` says how long each step of `start()` took, in milliseconds after `start()` was called: `sessionReadyMs`, `connectedMs`, `microphoneReadyMs` (the microphone opens while the call connects, so the permission prompt overlaps the earlier steps), `agentReadyMs` and `agentSpeakingMs` (the agent starts speaking while the browser may play it; its audio arrives a few hundred milliseconds later), plus `startedAt` (`Date.now()` at `start()`). Steps can finish out of order: the agent can be ready before the microphone. Send them to your analytics to measure how long visitors wait to hear the agent. `state.timings` is for logging and monitoring; don't show it to visitors, show the call status instead.
 
 ## Your session endpoint
 

@@ -4,10 +4,13 @@ import type * as PublicApi from '../src/index.js';
 import {
   type SessionHeaders,
   WayloVoice,
+  type WayloVoiceDevice,
+  type WayloVoiceDevices,
   type WayloVoiceEnd,
   WayloVoiceError,
   type WayloVoiceErrorCode,
   type WayloVoiceEvents,
+  type WayloVoiceListDevicesOptions,
   type WayloVoiceMicrophone,
   type WayloVoiceOptions,
   type WayloVoicePlayback,
@@ -59,13 +62,49 @@ describe('public API', () => {
 
   it('WayloVoice has the call, state and control methods only', () => {
     expectTypeOf<keyof WayloVoice>().toEqualTypeOf<
-      'getState' | 'off' | 'on' | 'resumeAudio' | 'setMuted' | 'setVolume' | 'start' | 'stop'
+      | 'getMicrophoneLevel'
+      | 'getState'
+      | 'off'
+      | 'on'
+      | 'resumeAudio'
+      | 'setMicrophoneDevice'
+      | 'setMuted'
+      | 'setSpeakerDevice'
+      | 'setVolume'
+      | 'start'
+      | 'stop'
     >();
     expectTypeOf<WayloVoice['start']>().parameters.toEqualTypeOf<[WayloVoiceStartOptions]>();
     expectTypeOf<WayloVoice['start']>().returns.toEqualTypeOf<Promise<void>>();
     expectTypeOf<WayloVoice['stop']>().parameters.toEqualTypeOf<[]>();
     expectTypeOf<WayloVoice['stop']>().returns.toEqualTypeOf<Promise<void>>();
     expectTypeOf<WayloVoice>().not.toHaveProperty('dispose');
+  });
+
+  it('lists devices statically and sets them by id', () => {
+    expectTypeOf(WayloVoice.listDevices).toEqualTypeOf<
+      (options?: WayloVoiceListDevicesOptions) => Promise<WayloVoiceDevices>
+    >();
+    expectTypeOf<WayloVoiceListDevicesOptions>().toEqualTypeOf<{
+      readonly requestPermission?: boolean;
+    }>();
+    expectTypeOf<WayloVoiceDevices>().toEqualTypeOf<{
+      readonly canChooseSpeaker: boolean;
+      readonly microphones: readonly WayloVoiceDevice[];
+      readonly speakers: readonly WayloVoiceDevice[];
+    }>();
+    expectTypeOf<WayloVoiceDevice>().toEqualTypeOf<{
+      readonly deviceId: string;
+      readonly label: string;
+    }>();
+    expectTypeOf<WayloVoice['setMicrophoneDevice']>().toEqualTypeOf<
+      (deviceId: string) => Promise<void>
+    >();
+    expectTypeOf<WayloVoice['setSpeakerDevice']>().toEqualTypeOf<
+      (deviceId: string) => Promise<void>
+    >();
+    expectTypeOf<WayloVoiceState['microphoneDeviceId']>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<WayloVoiceState['speakerDeviceId']>().toEqualTypeOf<string | undefined>();
   });
 
   it('start() takes an agent id, not a session', () => {
@@ -128,8 +167,14 @@ describe('public API', () => {
       | 'MICROPHONE_DENIED'
       | 'MICROPHONE_UNAVAILABLE'
       | 'SESSION_EXPIRED'
+      | 'SPEAKER_UNAVAILABLE'
       | 'TRANSCRIPT_FAILED'
     >();
+  });
+
+  it('getMicrophoneLevel() returns a number', () => {
+    expectTypeOf<WayloVoice['getMicrophoneLevel']>().parameters.toEqualTypeOf<[]>();
+    expectTypeOf<WayloVoice['getMicrophoneLevel']>().returns.toEqualTypeOf<number>();
   });
 
   it('getState() returns the state snapshot', () => {

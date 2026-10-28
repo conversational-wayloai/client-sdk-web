@@ -32,8 +32,14 @@ export function deferred<T = void>(): Deferred<T> {
 }
 
 export const behavior = {
+  canChooseSpeaker: true,
   connect: (): Promise<void> => Promise.resolve(),
-  microphone: (): Promise<void> => Promise.resolve(),
+  switchDevice: (
+    _kind: MediaDeviceKind,
+    _deviceId: string,
+    _exact: boolean,
+  ): Promise<boolean | void> => Promise.resolve(),
+  microphone: (_deviceId: string): Promise<void> => Promise.resolve(),
   agent: 'present' as 'present' | 'later',
   agentState: 'listening' as string | undefined,
   agentTracks: 1,
@@ -43,7 +49,14 @@ export class FakeRoom {
   static readonly instances: FakeRoom[] = [];
   readonly listeners = new Map<string, Set<Handler>>();
   readonly remoteParticipants = new Map<string, FakeRemoteParticipant>();
-  readonly localParticipant = createLocalParticipant(() => behavior.microphone());
+  readonly localParticipant = createLocalParticipant(
+    deviceId => behavior.microphone(deviceId),
+    deviceId => {
+      this.activeDevices.set('audioinput', deviceId);
+      this.emit('activeDeviceChanged', 'audioinput', deviceId);
+    },
+  );
+
   state: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' = 'disconnected';
   listenersAtDisconnect: number | undefined;
   #disconnected = deferred<never>();
@@ -54,6 +67,7 @@ export class FakeRoom {
   }
 
   canPlaybackAudio = true;
+  readonly activeDevices = new Map<MediaDeviceKind, string>();
   readonly textStreamHandlers = new Map<string, Handler>();
 
   startAudio = vi.fn(() => Promise.resolve());
@@ -65,6 +79,21 @@ export class FakeRoom {
 
   unregisterTextStreamHandler = vi.fn((topic: string) => {
     this.textStreamHandlers.delete(topic);
+  });
+
+  getActiveDevice = vi.fn((kind: MediaDeviceKind) => this.activeDevices.get(kind));
+
+  switchActiveDevice = vi.fn(async (kind: MediaDeviceKind, deviceId: string, exact = true) => {
+    const track = kind === 'audioinput' ? this.localParticipant.microphone?.track : undefined;
+
+    if (track) track.mediaStreamTrack.readyState = 'ended';
+    const isChosenDevice = (await behavior.switchDevice(kind, deviceId, exact)) ?? true;
+
+    if (track) track.mediaStreamTrack.readyState = 'live';
+    this.activeDevices.set(kind, isChosenDevice ? deviceId : 'fallback');
+    this.emit('activeDeviceChanged', kind, this.activeDevices.get(kind));
+
+    return isChosenDevice;
   });
 
   connect = vi.fn(async (_url: string, _token: string, _options?: unknown) => {
@@ -190,6 +219,8 @@ export function lastRoom(): FakeRoom {
 }
 
 export function resetBehavior(): void {
+  behavior.canChooseSpeaker = true;
+  behavior.switchDevice = () => Promise.resolve();
   behavior.connect = () => Promise.resolve();
   behavior.microphone = () => Promise.resolve();
   behavior.agent = 'present';

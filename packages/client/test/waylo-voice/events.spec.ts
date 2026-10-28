@@ -37,6 +37,7 @@ describe('WayloVoice state', () => {
       connection: 'connected',
       microphone: 'on',
       playback: 'playing',
+      microphoneDeviceId: 'default',
       sessionId: 'session-1',
       volume: 1,
     });
@@ -127,6 +128,7 @@ describe('WayloVoice end of call', () => {
       end: { reason: 'caller_hangup', status: 'completed' },
       microphone: 'off',
       playback: 'stopped',
+      microphoneDeviceId: 'default',
       sessionId: 'session-1',
       volume: 1,
     });

@@ -50,6 +50,7 @@ wayloVoice.on('error', error => console.warn(error.code));
 await wayloVoice.setMuted(true);
 wayloVoice.setVolume(0.5); // 0 to 1
 await wayloVoice.resumeAudio(); // from a click, when state.playback is 'blocked'
+wayloVoice.getMicrophoneLevel(); // 0 to 1, for a mic meter; poll it with requestAnimationFrame
 ```
 
 | State field | Values |
@@ -60,11 +61,12 @@ await wayloVoice.resumeAudio(); // from a click, when state.playback is 'blocked
 | `playback` | `stopped`, `playing`, `blocked` |
 | `volume` | last `setVolume()` value, default 1 |
 | `sessionId` | the Waylo session id, once known |
+| `microphoneDeviceId`, `speakerDeviceId` | the chosen device, or the one in use once the call has it; unset or `'default'` means the system default |
 | `end` | set once when the call is over: `{ status: 'completed', reason? }` or `{ status: 'failed', reason?, error }`; `reason` uses the API's session end reasons |
 
 `getState()` returns the same snapshot. `on()` returns an unsubscribe function; `off()` works too. After the final `state` (the one with `end`) nothing more is emitted, whoever ended the call. `end` is what this browser saw; the stored session (`GET /sessions/:id`) is the record.
 
-A transcript line keeps its `id` while it grows, and `text` is the whole line so far, so replace the row with that `id`. Captions are for display; the stored session is the record. While muted, the browser's mic indicator stays on. iOS Safari ignores volume levels, but 0 still mutes.
+A transcript line keeps its `id` while it grows, and `text` is the whole line so far, so replace the row with that `id`. Captions are for display; the stored session is the record. While muted, the browser's mic indicator stays on, and `getMicrophoneLevel()` is 0; it is not in the state because it changes every frame. iOS Safari ignores volume levels, but 0 still mutes.
 
 For a token-based app, add `headers`. The SDK calls it once per `start()` and sends the result only to `sessionEndpoint`. It never logs these headers or puts them in errors.
 
@@ -80,6 +82,20 @@ const wayloVoice = new WayloVoice({
 | `sessionEndpoint` | Required. Your backend route that returns a session (see below). Same-origin only (enforced). |
 | `headers` | Optional. `() => Record<string, string>` or a promise of one. Extra request headers. |
 | `agentTimeoutMs` | Optional. How long `start()` waits for the agent to be ready. Default 20000. |
+
+### Microphone and speaker
+
+```ts
+const { microphones, speakers, canChooseSpeaker } = await WayloVoice.listDevices();
+
+const [microphone] = microphones; // empty until the visitor has allowed the mic
+const [speaker] = speakers;
+
+if (microphone) await wayloVoice.setMicrophoneDevice(microphone.deviceId); // before or during the call
+if (canChooseSpeaker && speaker) await wayloVoice.setSpeakerDevice(speaker.deviceId);
+```
+
+`listDevices()` never asks for permission, so names (and, in most browsers, the list itself) appear only once the visitor has allowed the microphone; list again then, and on `navigator.mediaDevices`' `devicechange`. `listDevices({ requestPermission: true })` asks for the microphone first (call it from a click), closes it again and lists with names; it rejects with `MICROPHONE_DENIED` if the visitor blocks it. `canChooseSpeaker` is false where the browser can't route audio to a chosen speaker (Safari and every iOS browser); `setSpeakerDevice()` then rejects with `SPEAKER_UNAVAILABLE`. Firefox before 140 can choose a speaker but lists none, so treat an empty `speakers` list as no choice. A device chosen before `start()` that is gone by then falls back to the system default, and the state shows the device in use. Mid-call, a microphone that can't be opened rejects with `MICROPHONE_UNAVAILABLE` (`MICROPHONE_DENIED` when the browser blocks it) and the call keeps a working microphone where it can; a missing speaker rejects with `SPEAKER_UNAVAILABLE`. After an unplugged microphone (`error` event `MICROPHONE_UNAVAILABLE`), choose another to carry on. Safari can send that event when the system default microphone changes, then reopen the new default itself; `microphone` turns back to `on`.
 
 ## Your session endpoint
 
@@ -149,7 +165,7 @@ The session body has this shape (the SDK checks it; your page never sees it):
 
 `start()` rejects with a `WayloVoiceError`; problems after start come as `error` events and in `state.end.error`. Use its `code` to decide what to do, not its message; codes stay fixed, messages may change. The codes are:
 
-`AUTH_REQUIRED`, `ACCESS_DENIED`, `LIMIT_REACHED`, `INVALID_SESSION`, `SESSION_EXPIRED`, `CONNECTION_FAILED`, `MICROPHONE_DENIED`, `MICROPHONE_UNAVAILABLE`, `AGENT_TIMEOUT`, `AGENT_LEFT`, `AGENT_ERROR`, `TRANSCRIPT_FAILED`, `ALREADY_STARTED`, `CANCELLED`.
+`AUTH_REQUIRED`, `ACCESS_DENIED`, `LIMIT_REACHED`, `INVALID_SESSION`, `SESSION_EXPIRED`, `CONNECTION_FAILED`, `MICROPHONE_DENIED`, `MICROPHONE_UNAVAILABLE`, `SPEAKER_UNAVAILABLE`, `AGENT_TIMEOUT`, `AGENT_LEFT`, `AGENT_ERROR`, `TRANSCRIPT_FAILED`, `ALREADY_STARTED`, `CANCELLED`.
 
 The troubleshooting section of the [example README](example/README.md) says what to do about each one.
 

@@ -4,9 +4,12 @@ export type { SessionHeaders } from './session-endpoint.js';
 export type {
   WayloVoiceAgentState,
   WayloVoiceConnection,
+  WayloVoiceDevice,
+  WayloVoiceDevices,
   WayloVoiceEnd,
   WayloVoiceEndReason,
   WayloVoiceEvents,
+  WayloVoiceListDevicesOptions,
   WayloVoiceMicrophone,
   WayloVoicePlayback,
   WayloVoiceState,

@@ -2,6 +2,7 @@ import {
   ConnectionState,
   DeviceUnsupportedError,
   type DisconnectReason,
+  type LocalAudioTrack,
   type LocalTrack,
   type Participant,
   type RemoteParticipant,
@@ -9,20 +10,24 @@ import {
   type RoomConnectOptions,
   RoomEvent,
   type RoomEventCallbacks,
+  supportsAudioOutputSelection,
   Track,
   TrackEvent,
 } from 'livekit-client';
 
 import { abortable } from './abortable.js';
 import { findAgent, waitForAgent } from './agent.js';
+import { hasSpeaker, listDevices, requireDeviceId } from './devices.js';
 import { Emitter } from './emitter.js';
 import { WayloVoiceError } from './errors.js';
 import {
   disconnectCause,
+  isMissingDevice,
   toConnectError,
   toMicrophoneError,
   toWayloVoiceError,
 } from './livekit-errors.js';
+import { MicrophoneLevel } from './microphone-level.js';
 import { RemoteAudio } from './remote-audio.js';
 import { fetchSession, type SessionHeaders, type SessionRequest } from './session-endpoint.js';
 import {
@@ -38,8 +43,10 @@ import {
   INITIAL_STATE,
   mergeState,
   toAgentState,
+  type WayloVoiceDevices,
   type WayloVoiceEnd,
   type WayloVoiceEvents,
+  type WayloVoiceListDevicesOptions,
   type WayloVoiceState,
   type WayloVoiceTranscript,
 } from './state.js';
@@ -92,10 +99,13 @@ export class WayloVoice {
   readonly #headers: SessionHeaders | undefined;
   readonly #sessionEndpoint: string;
   readonly #audio = new RemoteAudio();
+  readonly #microphoneLevel = new MicrophoneLevel();
   readonly #phaseEvents = new Emitter<PhaseEvents>();
   readonly #events = new Emitter<WayloVoiceEvents>();
   readonly #transcriptAbort = new AbortController();
   readonly #cleanups: (() => void)[] = [];
+  #deviceChanges: Promise<void> = Promise.resolve();
+  #microphoneChoice: string | undefined;
   #phase: CallPhase = 'idle';
   #state: WayloVoiceState = INITIAL_STATE;
   #ending = false;
@@ -110,6 +120,11 @@ export class WayloVoice {
   #startSettled: Promise<void> | undefined;
   #stopPromise: Promise<void> | undefined;
   #releasePromise: Promise<void> | undefined;
+
+  /** The microphones and speakers to offer. Asks for the microphone only with `requestPermission`. */
+  static listDevices(options?: WayloVoiceListDevicesOptions): Promise<WayloVoiceDevices> {
+    return listDevices(options);
+  }
 
   /** Throws `RangeError` for invalid options. */
   constructor(options: WayloVoiceOptions) {
@@ -153,6 +168,16 @@ export class WayloVoice {
     return this.#state;
   }
 
+  /** The visitor's live mic level, 0 to 1; 0 unless `microphone` is `on`. Cheap to poll every frame. */
+  getMicrophoneLevel(): number {
+    const room = this.#room;
+    const track = room && microphoneTrack(room);
+
+    if (this.#ending || this.#state.microphone !== 'on' || !track) return 0;
+
+    return this.#microphoneLevel.read(track as LocalAudioTrack);
+  }
+
   /** Adds a listener and returns a function that removes it. */
   on<E extends keyof WayloVoiceEvents>(
     event: E,
@@ -174,21 +199,40 @@ export class WayloVoice {
     if (typeof muted !== 'boolean') throw new RangeError('muted must be a boolean.');
     if (this.#ending || muted === this.#muted) return;
     const room = this.#room;
+    const track = room && microphoneTrack(room);
 
-    if (!room || !microphoneTrack(room)) {
+    if (!room || !track) {
       this.#muted = muted;
 
       return;
     }
 
+    const previous = muted ? undefined : await track.getDeviceId(false);
+
     try {
       await room.localParticipant.setMicrophoneEnabled(!muted);
     } catch (error) {
+      // An unmute that opens a mic chosen while muted fails after LiveKit stopped the old one.
+      if (!this.#ending && previous) await reopenMicrophone(room, previous);
+      this.#syncMicrophone(room);
       throw toMicrophoneError(error, []);
     }
 
     this.#muted = muted;
     this.#syncMicrophone(room);
+  }
+
+  /**
+   * Uses this microphone, even before `start()`. Rejects with a mic error when it can't be opened;
+   * the call then keeps a working microphone where it can.
+   */
+  setMicrophoneDevice(deviceId: string): Promise<void> {
+    return this.#queueDeviceChange(deviceId, () => this.#switchMicrophone(deviceId));
+  }
+
+  /** Uses this speaker, even before `start()`. Rejects with `SPEAKER_UNAVAILABLE` where unsupported. */
+  setSpeakerDevice(deviceId: string): Promise<void> {
+    return this.#queueDeviceChange(deviceId, () => this.#switchSpeaker(deviceId));
   }
 
   /** Sets the agent's volume, 0 to 1, for every audio track now and later. */
@@ -209,6 +253,71 @@ export class WayloVoice {
     if (this.#ending || !room) return;
     await room.startAudio().catch(() => undefined);
     this.#syncPlayback(room);
+  }
+
+  #queueDeviceChange(deviceId: string, change: () => Promise<void>): Promise<void> {
+    try {
+      requireDeviceId(deviceId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+
+    return this.#queueChange(change);
+  }
+
+  #queueChange(change: () => Promise<void>): Promise<void> {
+    const changed = this.#deviceChanges.then(change);
+
+    this.#deviceChanges = changed.catch(() => undefined);
+
+    return changed;
+  }
+
+  async #switchMicrophone(deviceId: string): Promise<void> {
+    if (this.#ending) return;
+    this.#microphoneChoice = deviceId;
+    const room = this.#room;
+
+    if (!room || !microphoneTrack(room)) {
+      this.#updateState({ microphoneDeviceId: deviceId });
+
+      return;
+    }
+
+    const previous = room.getActiveDevice('audioinput') ?? 'default';
+
+    try {
+      // Exact: Chrome ignores a preferred device id when it can open the default one.
+      await room.switchActiveDevice('audioinput', deviceId);
+    } catch (error) {
+      // LiveKit stops the old track before opening the new one, so open the previous one again.
+      if (!this.#ending) await reopenMicrophone(room, previous);
+      throw toMicrophoneError(error, []);
+    } finally {
+      this.#syncMicrophone(room);
+    }
+
+    this.#updateState({ microphoneDeviceId: deviceId });
+  }
+
+  async #switchSpeaker(deviceId: string): Promise<void> {
+    if (this.#ending) return;
+    if (!supportsAudioOutputSelection()) throw new WayloVoiceError('SPEAKER_UNAVAILABLE');
+    const room = this.#room;
+
+    if (!room || !microphoneTrack(room)) {
+      this.#updateState({ speakerDeviceId: deviceId });
+
+      return;
+    }
+
+    if (!(await hasSpeaker(deviceId))) throw new WayloVoiceError('SPEAKER_UNAVAILABLE');
+
+    try {
+      await room.switchActiveDevice('audiooutput', deviceId);
+    } catch (error) {
+      throw new WayloVoiceError('SPEAKER_UNAVAILABLE', error);
+    }
   }
 
   #stopOnce(): Promise<void> {
@@ -252,6 +361,8 @@ export class WayloVoice {
 
       await this.#enableMicrophone(room, signal, secrets);
       signal.throwIfAborted();
+      // After the mic: some browsers list speakers only once the mic is allowed.
+      await this.#queueChange(() => this.#applySpeaker(room));
 
       this.#attachSubscribedAudio(room);
       this.#agent = await waitForAgent(room, this.#agentTimeoutMs, signal);
@@ -274,6 +385,19 @@ export class WayloVoice {
     this.#listenToRoom(room);
 
     return room;
+  }
+
+  // LiveKit only logs a speaker it can't use; a gone one falls back to the default, like the mic.
+  async #applySpeaker(room: Room): Promise<void> {
+    const deviceId = this.#state.speakerDeviceId;
+
+    if (deviceId === undefined) return;
+
+    if (await hasSpeaker(deviceId)) {
+      await room.switchActiveDevice('audiooutput', deviceId).catch(() => undefined);
+    } else {
+      this.#updateState({ speakerDeviceId: 'default' });
+    }
   }
 
   async #openSession(request: SessionRequest, signal: AbortSignal): Promise<WebSessionBootstrap> {
@@ -326,19 +450,34 @@ export class WayloVoice {
     signal: AbortSignal,
     secrets: readonly string[],
   ): Promise<void> {
-    const track = await abortableStep(this.#publishMicrophone(room, signal), signal, error =>
-      toMicrophoneError(error, secrets),
+    const requested = this.#microphoneChoice;
+    const track = await abortableStep(
+      this.#publishMicrophone(room, requested, signal),
+      signal,
+      error => toMicrophoneError(error, secrets),
     );
 
     // setMuted() during publishTrack only stored the flag; apply it now.
     if (this.#muted !== track.isMuted) await (this.#muted ? track.mute() : track.unmute());
+
     this.#watchMicrophone(room, track);
     this.#syncMicrophone(room);
+    const chosen = this.#microphoneChoice;
+
+    if (chosen !== undefined && chosen !== requested) {
+      await this.#queueDeviceChange(chosen, () => this.#switchMicrophone(chosen)).catch(
+        (error: unknown) => this.#emitError(toWayloVoiceError(error, secrets)),
+      );
+    }
   }
 
   // What setMicrophoneEnabled(true) does, with a mute applied between getUserMedia and publishing.
-  async #publishMicrophone(room: Room, signal: AbortSignal): Promise<LocalTrack> {
-    const [track] = await room.localParticipant.createTracks({ audio: true });
+  async #publishMicrophone(
+    room: Room,
+    deviceId: string | undefined,
+    signal: AbortSignal,
+  ): Promise<LocalTrack> {
+    const [track] = await createMicrophoneTracks(room, deviceId);
 
     if (!track) throw new DeviceUnsupportedError('No microphone track was created.');
 
@@ -387,6 +526,7 @@ export class WayloVoice {
     this.#listenToAudio(room);
     this.#listenToConnection(room);
     this.#listenToAgent(room);
+    this.#listenToDevices(room);
   }
 
   #listenToTranscripts(room: Room): void {
@@ -445,6 +585,17 @@ export class WayloVoice {
       // A full reconnect also reports every participant as disconnected, then switches the room
       // to reconnecting in the same tick. Looking one microtask later tells the two apart.
       queueMicrotask(() => this.#onAgentLeft(room, participant, reason));
+    });
+  }
+
+  #listenToDevices(room: Room): void {
+    // Read the room's choice: on an OS default change LiveKit reports the new device but keeps 'default'.
+    this.#addRoomListener(room, RoomEvent.ActiveDeviceChanged, kind => {
+      const deviceId = room.getActiveDevice(kind);
+
+      if (deviceId === undefined) return;
+      if (kind === 'audioinput') this.#updateState({ microphoneDeviceId: deviceId });
+      if (kind === 'audiooutput') this.#updateState({ speakerDeviceId: deviceId });
     });
   }
 
@@ -535,6 +686,7 @@ export class WayloVoice {
     this.#transcriptAbort.abort();
     if (!room) return;
     this.#audio.clear();
+    this.#microphoneLevel.clear();
 
     for (const cleanup of this.#cleanups.splice(0)) cleanup();
 
@@ -627,6 +779,18 @@ function connectionFailed(reason: DisconnectReason | undefined): WayloVoiceError
   return new WayloVoiceError('CONNECTION_FAILED', disconnectCause(ROOM_DISCONNECTED, reason));
 }
 
+async function createMicrophoneTracks(room: Room, deviceId: string | undefined) {
+  if (deviceId === undefined) return room.localParticipant.createTracks({ audio: true });
+
+  try {
+    return await room.localParticipant.createTracks({ audio: { deviceId: { exact: deviceId } } });
+  } catch (error) {
+    if (!isMissingDevice(error)) throw error;
+
+    return room.localParticipant.createTracks({ audio: true });
+  }
+}
+
 function failedEnd(error: WayloVoiceError, reason?: SessionEndReason): WayloVoiceEnd {
   return reason ? { error, reason, status: 'failed' } : { error, status: 'failed' };
 }
@@ -637,6 +801,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function microphoneTrack(room: Room): LocalTrack | undefined {
   return room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
+}
+
+async function reopenMicrophone(room: Room, deviceId: string): Promise<void> {
+  await room
+    .switchActiveDevice('audioinput', deviceId)
+    .catch(() => room.switchActiveDevice('audioinput', 'default', false))
+    .catch(() => undefined);
 }
 
 function requireAgentTimeoutMs(value: number | undefined): number {

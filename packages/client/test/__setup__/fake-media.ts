@@ -1,8 +1,30 @@
-import { vi } from 'vitest';
+import { type Mock, vi } from 'vitest';
 
 export type FakeAudioTrack = ReturnType<typeof createAudioTrack>;
 export type FakeLocalTrack = ReturnType<typeof createLocalTrack>;
 export type FakeRemoteParticipant = ReturnType<typeof createRemoteParticipant>;
+
+export interface FakeAnalyser {
+  calculateVolume: () => number;
+  cleanup: Mock<() => Promise<void>>;
+  level: number;
+  source: object;
+}
+
+export const analysers: FakeAnalyser[] = [];
+
+export function createAnalyser(track: { mediaStreamTrack: object }): FakeAnalyser {
+  const analyser: FakeAnalyser = {
+    level: 0.5,
+    source: track.mediaStreamTrack,
+    calculateVolume: vi.fn(() => analyser.level),
+    cleanup: vi.fn(() => Promise.resolve()),
+  };
+
+  analysers.push(analyser);
+
+  return analyser;
+}
 
 export function createAudioTrack() {
   const attachedElements: HTMLMediaElement[] = [];
@@ -25,16 +47,23 @@ export function createAudioTrack() {
   };
 }
 
-export function createLocalParticipant(enableMicrophone: () => Promise<void>) {
+export function createLocalParticipant(
+  enableMicrophone: (deviceId: string) => Promise<void>,
+  onPublished: (deviceId: string) => void = () => undefined,
+) {
   const participant = {
     identity: 'user-session-1',
     microphone: undefined as { track: FakeLocalTrack } | undefined,
     microphoneTracks: [] as FakeLocalTrack[],
     getTrackPublication: (source: string) =>
       source === 'microphone' ? participant.microphone : undefined,
-    createTracks: vi.fn(async (_options: { audio: boolean }) => {
-      await enableMicrophone();
+    createTracks: vi.fn(async (options: { audio: boolean | { deviceId: { exact: string } } }) => {
+      const deviceId = typeof options.audio === 'object' ? options.audio.deviceId.exact : 'default';
+
+      await enableMicrophone(deviceId);
       const track = createLocalTrack();
+
+      track.deviceId = deviceId;
 
       participant.microphoneTracks.push(track);
 
@@ -42,6 +71,7 @@ export function createLocalParticipant(enableMicrophone: () => Promise<void>) {
     }),
     publishTrack: vi.fn(async (track: FakeLocalTrack) => {
       participant.microphone = { track };
+      onPublished(track.deviceId);
 
       return participant.microphone;
     }),
@@ -61,8 +91,10 @@ export function createLocalTrack() {
   const mediaStreamTrack = { readyState: 'live' as MediaStreamTrackState };
   const listeners = new Map<string, Set<() => void>>();
   const track = {
+    deviceId: 'default',
     isMuted: false,
     mediaStreamTrack,
+    getDeviceId: vi.fn(async () => track.deviceId),
     emit(event: string) {
       for (const listener of listeners.get(event) ?? []) listener();
     },
@@ -93,6 +125,12 @@ export function createLocalTrack() {
   return track;
 }
 
+export function createMediaStream() {
+  const tracks = [{ stop: vi.fn() }, { stop: vi.fn() }];
+
+  return { tracks, getTracks: () => tracks };
+}
+
 export function createRemoteParticipant(identity: string, isAgent: boolean) {
   return {
     identity,
@@ -100,4 +138,19 @@ export function createRemoteParticipant(identity: string, isAgent: boolean) {
     attributes: {} as Record<string, string>,
     trackPublications: new Map<string, { track: FakeAudioTrack }>(),
   };
+}
+
+export function mediaDevice(kind: MediaDeviceKind, deviceId: string, label = ''): MediaDeviceInfo {
+  return { deviceId, groupId: 'group', kind, label, toJSON: () => ({}) };
+}
+
+export function stubMediaDevices(
+  devices: MediaDeviceInfo[] | undefined,
+  getUserMedia: (constraints: MediaStreamConstraints) => Promise<unknown> = () =>
+    Promise.resolve(createMediaStream()),
+): void {
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: devices && { enumerateDevices: () => Promise.resolve(devices), getUserMedia },
+  });
 }

@@ -60,7 +60,7 @@ While editing `src/main.ts`, run `pnpm dev:example` in a second terminal to rebu
 1. Click **Talk**. The status shows **Connecting**.
 2. The browser asks for the microphone. Allow it.
 3. The agent greets you: the status shows **Speaking**, then **Listening** and **Thinking** as you talk. Both sides appear as captions; grey lines are still changing.
-4. **Mute my mic** and **Agent volume** apply at once. **Tap to hear the agent** shows only when the browser blocks sound.
+4. **Mic level**, under **Microphone**, lights up as you speak and stays flat while muted. **Mute my mic**, **Agent volume**, **Microphone** and **Speaker** apply at once; the device lists fill in once the microphone is allowed, or before a call with **Show microphone names**. Browsers that can't choose the speaker show a note instead. **Tap to hear the agent** shows only when the browser blocks sound.
 5. Click **Hang up** (or say goodbye and let the agent end the call). A summary shows how the call ended, its length and the session id, and the microphone indicator turns off.
 
 The event log at the bottom numbers each call, so a late event from an old call would stand out.
@@ -108,7 +108,8 @@ Errors from the SDK (`WayloVoiceError.code`):
 | `SESSION_EXPIRED` | The session expired. Click **Talk** again. |
 | `CONNECTION_FAILED` | The session endpoint failed, could not be reached or did not answer within 15 s, or the call dropped. Check the server terminal and your network. |
 | `MICROPHONE_DENIED` | Allow microphone access in the browser and try again. |
-| `MICROPHONE_UNAVAILABLE` | Connect a microphone, close other apps using it, and try again. |
+| `MICROPHONE_UNAVAILABLE` | Connect a microphone, close other apps using it, and try again. Mid-call, pick another microphone. |
+| `SPEAKER_UNAVAILABLE` | The chosen speaker is gone or this browser can't choose one; the current speaker keeps playing the agent. |
 | `AGENT_TIMEOUT` | The agent didn't get ready in time. Try again. |
 | `AGENT_LEFT` | The agent left the call without ending it. Click **Talk** to start a new one. |
 | `AGENT_ERROR` | The agent hit an error and ended the call. `state.end.reason` says why, e.g. `worker_error`. |

@@ -2,7 +2,12 @@ import { ConnectionError, ConnectionErrorReason, DeviceUnsupportedError } from '
 import { describe, expect, it } from 'vitest';
 
 import { WayloVoiceError } from '../src/errors.js';
-import { toConnectError, toMicrophoneError, toWayloVoiceError } from '../src/livekit-errors.js';
+import {
+  isMissingDevice,
+  toConnectError,
+  toMicrophoneError,
+  toWayloVoiceError,
+} from '../src/livekit-errors.js';
 
 function foreignConnectionError(reason: number): Error {
   return Object.assign(new Error('from another livekit-client copy'), {
@@ -74,5 +79,22 @@ describe('toMicrophoneError', () => {
 describe('toWayloVoiceError', () => {
   it('wraps anything else in CONNECTION_FAILED', () => {
     expect(toWayloVoiceError(new Error('x'), []).code).toBe('CONNECTION_FAILED');
+  });
+});
+
+describe('isMissingDevice()', () => {
+  it.each(['OverconstrainedError', 'NotFoundError', 'DevicesNotFoundError'])(
+    'is true for %s',
+    name => {
+      expect(isMissingDevice(new DOMException('gone', name))).toBe(true);
+    },
+  );
+
+  it.each(['NotAllowedError', 'NotReadableError'])('is false for %s', name => {
+    expect(isMissingDevice(new DOMException('no', name))).toBe(false);
+  });
+
+  it('is false for a value without a name', () => {
+    expect(isMissingDevice('gone')).toBe(false);
   });
 });

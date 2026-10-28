@@ -79,7 +79,7 @@ describe('choosing devices before start()', () => {
 
     await call.setMicrophoneDevice('usb-mic');
 
-    await expect(errorCodeFrom(call.start(START))).resolves.toBe('MICROPHONE_UNAVAILABLE');
+    await expect(errorCodeFrom(call.start(START))).resolves.toBe('MICROPHONE_IN_USE');
   });
 
   it('switches to a mic chosen while the call connects', async () => {
@@ -127,7 +127,7 @@ describe('choosing devices before start()', () => {
     prompt.resolve();
     await started;
 
-    expect(errors.map(error => error.code)).toEqual(['MICROPHONE_UNAVAILABLE']);
+    expect(errors.map(error => error.code)).toEqual(['MICROPHONE_IN_USE']);
     expect(lastRoom().switchActiveDevice).toHaveBeenLastCalledWith('audioinput', 'default');
     expect(call.getState()).toMatchObject({ connection: 'connected', microphone: 'on' });
   });
@@ -175,7 +175,7 @@ describe('switching devices mid-call', () => {
     behavior.switchDevice = failBusy;
 
     await expect(errorCodeFrom(call.setMicrophoneDevice('busy'))).resolves.toBe(
-      'MICROPHONE_UNAVAILABLE',
+      'MICROPHONE_IN_USE',
     );
     expect(room.switchActiveDevice).toHaveBeenLastCalledWith('audioinput', 'usb-mic');
     expect(call.getState()).toMatchObject({ microphone: 'on', microphoneDeviceId: 'usb-mic' });
@@ -276,7 +276,7 @@ describe('switching devices mid-call', () => {
       throw new DOMException('Could not start audio source', 'NotReadableError');
     });
 
-    await expect(errorCodeFrom(call.setMuted(false))).resolves.toBe('MICROPHONE_UNAVAILABLE');
+    await expect(errorCodeFrom(call.setMuted(false))).resolves.toBe('MICROPHONE_IN_USE');
     expect(room.switchActiveDevice).toHaveBeenLastCalledWith('audioinput', 'default');
 
     await call.setMuted(false);

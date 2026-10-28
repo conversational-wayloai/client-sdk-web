@@ -1,3 +1,5 @@
+import { ConnectionQuality } from 'livekit-client';
+
 import type { WayloVoiceError } from './errors.js';
 import type { SessionEndReason } from './session-outcome.js';
 
@@ -23,8 +25,27 @@ export type WayloVoiceEndReason = SessionEndReason;
 /** Whether the microphone is live, muted or off. */
 export type WayloVoiceMicrophone = 'muted' | 'off' | 'on';
 
+/**
+ * `network` is how well this browser's connection to the call is doing: `good`, `poor` or `lost`.
+ * When it's `poor` or `lost`, show a non-blocking banner such as "Your connection is weak"; the call
+ * goes on, and `connection` says if it's reconnecting.
+ */
+export type WayloVoiceNetwork = 'good' | 'lost' | 'poor';
+
 /** `playing` means the browser may play the agent's audio, not that it is audible. */
 export type WayloVoicePlayback = 'blocked' | 'playing' | 'stopped';
+
+/** Which moment of the call this is, for a status line. */
+export type WayloVoiceStage =
+  | 'connecting'
+  | 'ended'
+  | 'idle'
+  | 'joining'
+  | 'listening'
+  | 'preparing'
+  | 'reconnecting'
+  | 'speaking'
+  | 'thinking';
 
 /** A microphone or speaker. `label` is empty until the visitor allows the microphone. */
 export interface WayloVoiceDevice {
@@ -66,12 +87,16 @@ export interface WayloVoiceState {
   readonly microphone: WayloVoiceMicrophone;
   /** The microphone chosen, or the one in use once the call has it; unset or `'default'` means the system default. */
   readonly microphoneDeviceId?: string;
+  /** How well this browser's connection is doing; `'good'` outside a call. */
+  readonly network: WayloVoiceNetwork;
   /** Whether the browser may play the agent's audio. */
   readonly playback: WayloVoicePlayback;
   /** The Waylo session id, once known. */
   readonly sessionId?: string;
   /** The speaker chosen, or the one in use once the call has it; unset or `'default'` means the system default. */
   readonly speakerDeviceId?: string;
+  /** Which moment of the call this is, from `connection` and `agent`, for a status line. */
+  readonly stage: WayloVoiceStage;
   /** How long each step of the call took, once `start()` was called. */
   readonly timings?: WayloVoiceTimings;
   /** Agent volume, 0 to 1. */
@@ -110,7 +135,9 @@ export const INITIAL_STATE: WayloVoiceState = Object.freeze({
   agent: 'none',
   connection: 'idle',
   microphone: 'off',
+  network: 'good',
   playback: 'stopped',
+  stage: 'idle',
   volume: 1,
 });
 
@@ -137,5 +164,41 @@ export function toAgentState(
       return 'thinking';
     default:
       return 'joining';
+  }
+}
+
+export function toNetwork(quality: ConnectionQuality): WayloVoiceNetwork | undefined {
+  switch (quality) {
+    case ConnectionQuality.Excellent:
+    case ConnectionQuality.Good:
+      return 'good';
+    case ConnectionQuality.Poor:
+      return 'poor';
+    case ConnectionQuality.Lost:
+      return 'lost';
+    default:
+      return undefined;
+  }
+}
+
+export function toStage(
+  state: WayloVoiceState,
+  previous: WayloVoiceStage,
+  hasAgentSpoken: boolean,
+): WayloVoiceStage {
+  switch (state.connection) {
+    case 'connecting':
+      return state.timings?.connectedMs === undefined ? 'connecting' : 'joining';
+    case 'disconnected':
+      return 'ended';
+    case 'idle':
+      return 'idle';
+    case 'reconnecting':
+      return 'reconnecting';
+    default:
+      if (state.agent === 'none') return previous;
+      if (state.agent === 'joining') return 'joining';
+
+      return hasAgentSpoken ? state.agent : 'preparing';
   }
 }

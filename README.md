@@ -55,15 +55,19 @@ wayloVoice.getMicrophoneLevel(); // 0 to 1, for a mic meter; poll it with reques
 
 | State field | Values |
 | --- | --- |
+| `stage` | `idle`, `connecting`, `joining`, `preparing`, `speaking`, `listening`, `thinking`, `reconnecting`, `ended`; which moment of the call it is (see Status line) |
 | `connection` | `idle`, `connecting`, `connected`, `reconnecting`, `disconnected` |
 | `agent` | `none`, `joining`, `listening`, `thinking`, `speaking` |
 | `microphone` | `off`, `on`, `muted` |
+| `network` | `good`, `poor`, `lost`; `good` outside a call |
 | `playback` | `stopped`, `playing`, `blocked` |
 | `volume` | last `setVolume()` value, default 1 |
 | `sessionId` | the Waylo session id, once known |
 | `microphoneDeviceId`, `speakerDeviceId` | the chosen device, or the one in use once the call has it; unset or `'default'` means the system default |
 | `timings` | how long each step of the call took (see below), from `start()` on |
 | `end` | set once when the call is over: `{ status: 'completed', reason? }` or `{ status: 'failed', reason?, error }`; `reason` uses the API's session end reasons |
+
+`network` is how well this browser's connection to the call is doing: `good`, `poor` or `lost`. When it's `poor` or `lost`, show a non-blocking banner such as "Your connection is weak"; the call goes on, and `connection` says if it's reconnecting.
 
 `getState()` returns the same snapshot. `on()` returns an unsubscribe function; `off()` works too. After the final `state` (the one with `end`) nothing more is emitted, whoever ended the call. `end` is what this browser saw; the stored session (`GET /sessions/:id`) is the record.
 
@@ -84,6 +88,24 @@ const wayloVoice = new WayloVoice({
 | `headers` | Optional. `() => Record<string, string>` or a promise of one. Extra request headers. |
 | `agentTimeoutMs` | Optional. How long `start()` waits for the agent to be ready. Default 20000. |
 
+### Status line
+
+`state.stage` folds `connection` and `agent` into the one value a status line needs. The SDK shows no text; your page picks the words. Recommended wording:
+
+| `stage`        | Status text                                                          |
+| -------------- | -------------------------------------------------------------------- |
+| `idle`         | nothing, or your Talk button                                         |
+| `connecting`   | Calling {agent}…                                                     |
+| `joining`      | {agent} is joining…                                                  |
+| `preparing`    | {agent} is getting ready… (the agent is ready but hasn't spoken yet) |
+| `speaking`     | {agent} is speaking                                                  |
+| `listening`    | Go ahead, I'm listening                                              |
+| `thinking`     | Thinking…                                                            |
+| `reconnecting` | Reconnecting…                                                        |
+| `ended`        | Call ended, or the failure in `end`                                  |
+
+Next to it, while `network` is `poor`: "Your connection is weak, you may hear gaps".
+
 ### Microphone and speaker
 
 ```ts
@@ -96,7 +118,7 @@ if (microphone) await wayloVoice.setMicrophoneDevice(microphone.deviceId); // be
 if (canChooseSpeaker && speaker) await wayloVoice.setSpeakerDevice(speaker.deviceId);
 ```
 
-`listDevices()` never asks for permission, so names (and, in most browsers, the list itself) appear only once the visitor has allowed the microphone; list again then, and on `navigator.mediaDevices`' `devicechange`. `listDevices({ requestPermission: true })` asks for the microphone first (call it from a click), closes it again and lists with names; it rejects with `MICROPHONE_DENIED` if the visitor blocks it. `canChooseSpeaker` is false where the browser can't route audio to a chosen speaker (Safari and every iOS browser); `setSpeakerDevice()` then rejects with `SPEAKER_UNAVAILABLE`. Firefox before 140 can choose a speaker but lists none, so treat an empty `speakers` list as no choice. A device chosen before `start()` that is gone by then falls back to the system default, and the state shows the device in use. Mid-call, a microphone that can't be opened rejects with `MICROPHONE_UNAVAILABLE` (`MICROPHONE_DENIED` when the browser blocks it) and the call keeps a working microphone where it can; a missing speaker rejects with `SPEAKER_UNAVAILABLE`. After an unplugged microphone (`error` event `MICROPHONE_UNAVAILABLE`), choose another to carry on. Safari can send that event when the system default microphone changes, then reopen the new default itself; `microphone` turns back to `on`.
+`listDevices()` never asks for permission, so names (and, in most browsers, the list itself) appear only once the visitor has allowed the microphone; list again then, and on `navigator.mediaDevices`' `devicechange`. `listDevices({ requestPermission: true })` asks for the microphone first (call it from a click), closes it again and lists with names; it rejects with `MICROPHONE_DENIED` if the visitor blocks it. `canChooseSpeaker` is false where the browser can't route audio to a chosen speaker (Safari and every iOS browser); `setSpeakerDevice()` then rejects with `SPEAKER_UNAVAILABLE`. Firefox before 140 can choose a speaker but lists none, so treat an empty `speakers` list as no choice. A device chosen before `start()` that is gone by then falls back to the system default, and the state shows the device in use. Mid-call, a microphone that can't be opened rejects with `MICROPHONE_UNAVAILABLE` (`MICROPHONE_IN_USE` when another app holds it, `MICROPHONE_DENIED` when the browser blocks it) and the call keeps a working microphone where it can; a missing speaker rejects with `SPEAKER_UNAVAILABLE`. After an unplugged microphone (`error` event `MICROPHONE_UNAVAILABLE`), choose another to carry on. Safari can send that event when the system default microphone changes, then reopen the new default itself; `microphone` turns back to `on`.
 
 ### Timings
 
@@ -168,9 +190,26 @@ The session body has this shape (the SDK checks it; your page never sees it):
 
 ## Errors
 
-`start()` rejects with a `WayloVoiceError`; problems after start come as `error` events and in `state.end.error`. Use its `code` to decide what to do, not its message; codes stay fixed, messages may change. The codes are:
+`start()` rejects with a `WayloVoiceError`; problems after start come as `error` events and in `state.end.error`. Use its `code` to decide what to do, not its message; codes stay fixed, messages may change.
 
-`AUTH_REQUIRED`, `ACCESS_DENIED`, `LIMIT_REACHED`, `INVALID_SESSION`, `SESSION_EXPIRED`, `CONNECTION_FAILED`, `MICROPHONE_DENIED`, `MICROPHONE_UNAVAILABLE`, `SPEAKER_UNAVAILABLE`, `AGENT_TIMEOUT`, `AGENT_LEFT`, `AGENT_ERROR`, `TRANSCRIPT_FAILED`, `ALREADY_STARTED`, `CANCELLED`.
+| Code | What happened | What to tell the visitor | Try again? |
+| --- | --- | --- | --- |
+| `AUTH_REQUIRED` | The session endpoint answered 401 or redirected. | "Please sign in to talk." | After signing in |
+| `ACCESS_DENIED` | The session endpoint answered 403. | "You can't use this assistant." | No |
+| `LIMIT_REACHED` | The session endpoint answered 429. | "Too many calls right now. Try again in a minute." | Yes, later |
+| `INVALID_SESSION` | The session endpoint's 200 body is not a Waylo session; return it unchanged. | "Something went wrong. Please try again later." | No, fix the endpoint |
+| `SESSION_EXPIRED` | The session expired or was rejected. | "Please try again." | Yes, new call |
+| `CONNECTION_FAILED` | The endpoint failed or took over 15 s, the call could not connect, or it dropped. | "Couldn't connect. Check your internet and try again." | Yes |
+| `MICROPHONE_DENIED` | The visitor or the browser blocked the microphone. | "Allow the microphone in your browser, then try again." | After allowing it |
+| `MICROPHONE_IN_USE` | Another app or tab holds the microphone, or the system could not start it. | "Your microphone is busy. Close other apps using it, then try again." | Yes |
+| `MICROPHONE_UNAVAILABLE` | No usable microphone, the chosen one can't be opened, or the browser refused it for another reason. The original error is in `cause`. | "No working microphone found. Connect one, then try again." | Yes, after fixing it |
+| `SPEAKER_UNAVAILABLE` | The chosen speaker can't be used or the browser can't choose one; the current speaker keeps playing. | Nothing; hide or reset the speaker picker. | Not needed |
+| `AGENT_TIMEOUT` | The agent wasn't ready in time. | "The assistant isn't available right now. Try again." | Yes |
+| `AGENT_LEFT` | The agent left without ending the call. | "The call dropped. Start a new one." | Yes, new call |
+| `AGENT_ERROR` | The agent hit an error and ended the call; `state.end.reason` says why. | "Something went wrong. Try again." | Yes, new call |
+| `TRANSCRIPT_FAILED` | One caption line couldn't be read; the call goes on. | Nothing. | Not needed |
+| `ALREADY_STARTED` | `start()` was called twice on one instance; a code bug. | Nothing; create a new `WayloVoice` per call. | Not needed |
+| `CANCELLED` | `stop()` was called while starting. | Nothing. | Not needed |
 
 The troubleshooting section of the [example README](example/README.md) says what to do about each one.
 

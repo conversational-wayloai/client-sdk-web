@@ -1,4 +1,9 @@
-import { ConnectionError, ConnectionErrorReason, DeviceUnsupportedError } from 'livekit-client';
+import {
+  ConnectionError,
+  ConnectionErrorReason,
+  DeviceUnsupportedError,
+  MediaDeviceFailure,
+} from 'livekit-client';
 import { describe, expect, it } from 'vitest';
 
 import { WayloVoiceError } from '../src/errors.js';
@@ -50,13 +55,29 @@ describe('toConnectError', () => {
 describe('toMicrophoneError', () => {
   it.each([
     ['NotAllowedError', 'MICROPHONE_DENIED'],
+    ['PermissionDeniedError', 'MICROPHONE_DENIED'],
+    ['NotReadableError', 'MICROPHONE_IN_USE'],
+    ['TrackStartError', 'MICROPHONE_IN_USE'],
     ['NotFoundError', 'MICROPHONE_UNAVAILABLE'],
-    ['NotReadableError', 'MICROPHONE_UNAVAILABLE'],
     ['OverconstrainedError', 'MICROPHONE_UNAVAILABLE'],
-    ['AbortError', 'CONNECTION_FAILED'],
-    ['SecurityError', 'CONNECTION_FAILED'],
+    ['AbortError', 'MICROPHONE_UNAVAILABLE'],
+    ['SecurityError', 'MICROPHONE_UNAVAILABLE'],
+    ['TypeError', 'MICROPHONE_UNAVAILABLE'],
   ])('maps a %s DOMException to %s', (name, code) => {
     expect(toMicrophoneError(new DOMException('mic', name), []).code).toBe(code);
+  });
+
+  it('keeps the original error as the cause', () => {
+    const error = toMicrophoneError(
+      new DOMException('Could not start audio source', 'NotReadableError'),
+      [],
+    );
+
+    expect(MediaDeviceFailure.getFailure(error.cause)).toBe(MediaDeviceFailure.DeviceInUse);
+    expect(error.cause).toMatchObject({
+      message: 'Could not start audio source',
+      name: 'NotReadableError',
+    });
   });
 
   it('maps an OverconstrainedError that is not a DOMException to MICROPHONE_UNAVAILABLE', () => {
@@ -71,9 +92,12 @@ describe('toMicrophoneError', () => {
     );
   });
 
-  it('maps a non-error value to CONNECTION_FAILED', () => {
-    expect(toMicrophoneError('nope', []).code).toBe('CONNECTION_FAILED');
-  });
+  it.each(['nope', undefined, {}])(
+    'maps %j, which has no name, to MICROPHONE_UNAVAILABLE',
+    value => {
+      expect(toMicrophoneError(value, []).code).toBe('MICROPHONE_UNAVAILABLE');
+    },
+  );
 });
 
 describe('toWayloVoiceError', () => {

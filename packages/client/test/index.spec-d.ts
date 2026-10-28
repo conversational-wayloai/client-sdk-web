@@ -12,8 +12,10 @@ import {
   type WayloVoiceEvents,
   type WayloVoiceListDevicesOptions,
   type WayloVoiceMicrophone,
+  type WayloVoiceNetwork,
   type WayloVoiceOptions,
   type WayloVoicePlayback,
+  type WayloVoiceStage,
   type WayloVoiceStartOptions,
   type WayloVoiceState,
   type WayloVoiceTimings,
@@ -178,6 +180,7 @@ describe('public API', () => {
       | 'INVALID_SESSION'
       | 'LIMIT_REACHED'
       | 'MICROPHONE_DENIED'
+      | 'MICROPHONE_IN_USE'
       | 'MICROPHONE_UNAVAILABLE'
       | 'SESSION_EXPIRED'
       | 'SPEAKER_UNAVAILABLE'
@@ -200,8 +203,22 @@ describe('public API', () => {
     >();
     expectTypeOf<WayloVoiceMicrophone>().toEqualTypeOf<'muted' | 'off' | 'on'>();
     expectTypeOf<WayloVoiceState['microphone']>().toEqualTypeOf<WayloVoiceMicrophone>();
+    expectTypeOf<WayloVoiceNetwork>().toEqualTypeOf<'good' | 'lost' | 'poor'>();
+    expectTypeOf<WayloVoiceState['network']>().toEqualTypeOf<WayloVoiceNetwork>();
     expectTypeOf<WayloVoicePlayback>().toEqualTypeOf<'blocked' | 'playing' | 'stopped'>();
     expectTypeOf<WayloVoiceState['playback']>().toEqualTypeOf<WayloVoicePlayback>();
+    expectTypeOf<WayloVoiceStage>().toEqualTypeOf<
+      | 'connecting'
+      | 'ended'
+      | 'idle'
+      | 'joining'
+      | 'listening'
+      | 'preparing'
+      | 'reconnecting'
+      | 'speaking'
+      | 'thinking'
+    >();
+    expectTypeOf<WayloVoiceState['stage']>().toEqualTypeOf<WayloVoiceStage>();
   });
 
   it('a failed end always carries an error, a completed one never does', () => {

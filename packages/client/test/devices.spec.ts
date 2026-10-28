@@ -105,7 +105,9 @@ describe('listDevices({ requestPermission })', () => {
 
   it.each([
     ['NotAllowedError', 'MICROPHONE_DENIED'],
+    ['NotReadableError', 'MICROPHONE_IN_USE'],
     ['NotFoundError', 'MICROPHONE_UNAVAILABLE'],
+    ['SecurityError', 'MICROPHONE_UNAVAILABLE'],
   ])('rejects a %s with %s', async (name, code) => {
     stubMediaDevices([], () => Promise.reject(new DOMException('mic', name)));
     const error = await wayloVoiceErrorFrom(listDevices({ requestPermission: true }));

@@ -43,6 +43,8 @@ import {
   INITIAL_STATE,
   mergeState,
   toAgentState,
+  toNetwork,
+  toStage,
   type WayloVoiceDevices,
   type WayloVoiceEnd,
   type WayloVoiceEvents,
@@ -113,6 +115,7 @@ export class WayloVoice {
   #ending = false;
   #closed = false;
   #muted = false;
+  #hasAgentSpoken = false;
   #error: WayloVoiceError | undefined;
   #room: Room | undefined;
   #agent: RemoteParticipant | undefined;
@@ -567,6 +570,11 @@ export class WayloVoice {
     this.#addRoomListener(room, RoomEvent.Disconnected, reason => {
       this.#onDisconnected(reason);
     });
+    this.#addRoomListener(room, RoomEvent.ConnectionQualityChanged, (quality, participant) => {
+      const network = toNetwork(quality);
+
+      if (network && participant === room.localParticipant) this.#updateState({ network });
+    });
   }
 
   #listenToAgent(room: Room): void {
@@ -725,6 +733,10 @@ export class WayloVoice {
     let next = mergeState(this.#state, changes);
 
     if (!next) return;
+    this.#hasAgentSpoken ||= next.agent === 'speaking';
+    const stage = toStage(next, this.#state.stage, this.#hasAgentSpoken);
+
+    if (stage !== next.stage) next = Object.freeze({ ...next, stage });
 
     const { timings } = next;
 
@@ -756,7 +768,9 @@ export class WayloVoice {
       connection: 'disconnected',
       end,
       microphone: 'off',
+      network: 'good',
       playback: 'stopped',
+      stage: 'ended',
     });
     this.#events.emit('state', this.#state);
   }

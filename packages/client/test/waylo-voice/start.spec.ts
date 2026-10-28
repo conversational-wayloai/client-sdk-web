@@ -145,7 +145,7 @@ describe('WayloVoice', () => {
       };
 
       await createCall().start(START);
-      expect(listenersAtConnect).toBe(10);
+      expect(listenersAtConnect).toBe(11);
       expect(lastRoom().registerTextStreamHandler).toHaveBeenCalledWith(
         'lk.transcription',
         expect.any(Function),
@@ -266,7 +266,7 @@ describe('WayloVoice', () => {
     it.each([
       ['NotAllowedError', 'MICROPHONE_DENIED'],
       ['NotFoundError', 'MICROPHONE_UNAVAILABLE'],
-      ['NotReadableError', 'MICROPHONE_UNAVAILABLE'],
+      ['NotReadableError', 'MICROPHONE_IN_USE'],
     ])('maps a %s from the mic to %s', async (name, code) => {
       behavior.microphone = () => Promise.reject(domError(name));
       const call = createCall();
@@ -280,13 +280,31 @@ describe('WayloVoice', () => {
 
     it.each([
       ['an OverconstrainedError', domError('OverconstrainedError'), 'MICROPHONE_UNAVAILABLE'],
-      ['any other DOMException', domError('AbortError'), 'CONNECTION_FAILED'],
-      ['an unknown mic error', new Error('boom'), 'CONNECTION_FAILED'],
-    ])('maps %s from the mic to %s', async (_label, failure, code) => {
+      ['an AbortError', domError('AbortError'), 'MICROPHONE_UNAVAILABLE'],
+      ['a SecurityError', domError('SecurityError'), 'MICROPHONE_UNAVAILABLE'],
+      ['an unknown mic error', new Error('boom'), 'MICROPHONE_UNAVAILABLE'],
+    ])('maps %s from the mic to %s, keeping it as the cause', async (_label, failure, code) => {
       behavior.microphone = () => Promise.reject(failure);
       const error = await wayloVoiceErrorFrom(createCall().start(START));
 
       expect(error.code).toBe(code);
+      expect(error.cause).toMatchObject({ message: failure.message, name: failure.name });
+    });
+
+    it('fails with CONNECTION_FAILED when the open mic cannot be published', async () => {
+      const call = createCall();
+      const started = call.start(START);
+
+      lastRoom().localParticipant.publishTrack.mockRejectedValueOnce(
+        new Error('publish timed out'),
+      );
+      const error = await wayloVoiceErrorFrom(started);
+
+      expect(error.code).toBe('CONNECTION_FAILED');
+      expect(lastRoom().localParticipant.microphoneTracks[0]?.mediaStreamTrack.readyState).toBe(
+        'ended',
+      );
+      expectCleanedUp(lastRoom());
     });
 
     it('fails with MICROPHONE_UNAVAILABLE when LiveKit creates no mic track', async () => {

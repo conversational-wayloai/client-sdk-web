@@ -224,7 +224,9 @@
         opacity: 0.3;
       }
       #viz[data-state='connecting'],
-      #viz[data-state='listening'] {
+      #viz[data-state='joining'],
+      #viz[data-state='preparing'],
+      #viz[data-state='reconnecting'] {
         --speed: 1.2s;
       }
       #viz[data-state='thinking'] {
@@ -476,6 +478,7 @@
             <p id="status" role="status" data-state="idle" data-testid="agent-state"></p>
             <span id="timer"></span>
           </div>
+          <p id="network-note" class="muted" hidden>Your connection is weak, you may hear gaps</p>
           <p id="error" role="alert" hidden></p>
           <section id="transcript" aria-label="Transcript" data-testid="transcript">
             <p id="thinking" class="agent" aria-label="Thinking" hidden>…</p>
@@ -487,10 +490,12 @@
         <section class="card" aria-labelledby="call-state-heading">
           <h2 id="call-state-heading">Call state</h2>
           <p id="state-pills">
+            <span data-value="idle">stage: idle</span>
             <span data-value="idle">connection: idle</span>
             <span data-value="none">agent: none</span>
             <span data-value="off">mic: off</span>
             <span data-value="stopped">playback: stopped</span>
+            <span data-value="good">network: good</span>
           </p>
           <p id="session" class="muted">Session —</p>
         </section>

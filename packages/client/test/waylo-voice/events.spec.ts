@@ -1,6 +1,7 @@
 import { DisconnectReason } from 'livekit-client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { WayloVoiceState } from '../../src/index.js';
 import { activeCall, record } from '../__setup__/active-call.js';
 import { everyErrorSurface, wayloVoiceErrorFrom } from '../__setup__/errors.js';
 import { behavior, flush, lastRoom } from '../__setup__/fake-room.js';
@@ -19,7 +20,9 @@ describe('WayloVoice state', () => {
       agent: 'none',
       connection: 'idle',
       microphone: 'off',
+      network: 'good',
       playback: 'stopped',
+      stage: 'idle',
       volume: 1,
     });
     expect(Object.isFrozen(state)).toBe(true);
@@ -36,9 +39,11 @@ describe('WayloVoice state', () => {
       agent: 'listening',
       connection: 'connected',
       microphone: 'on',
+      network: 'good',
       playback: 'playing',
       microphoneDeviceId: 'default',
       sessionId: 'session-1',
+      stage: 'preparing',
       timings: expect.objectContaining({ agentReadyMs: expect.any(Number) }),
       volume: 1,
     });
@@ -67,6 +72,29 @@ describe('WayloVoice state', () => {
     expect(call.getState().connection).toBe('connected');
   });
 
+  it('follows the network quality of this browser only, ignoring unknown', async () => {
+    const { call, room, states } = await activeCall();
+
+    room.emit('connectionQualityChanged', 'poor', room.localParticipant);
+    expect(call.getState().network).toBe('poor');
+    room.emit('connectionQualityChanged', 'unknown', room.localParticipant);
+    room.emit('connectionQualityChanged', 'excellent', room.remoteParticipants.get('agent'));
+    expect(call.getState().network).toBe('poor');
+    room.emit('connectionQualityChanged', 'lost', room.localParticipant);
+    expect(call.getState().network).toBe('lost');
+    room.emit('connectionQualityChanged', 'excellent', room.localParticipant);
+    room.emit('connectionQualityChanged', 'good', room.localParticipant);
+    expect(states.map(state => state.network).slice(-3)).toEqual(['poor', 'lost', 'good']);
+  });
+
+  it('shows the network as good again once the call ends', async () => {
+    const { call, room } = await activeCall();
+
+    room.emit('connectionQualityChanged', 'lost', room.localParticipant);
+    await call.stop();
+    expect(call.getState()).toMatchObject({ connection: 'disconnected', network: 'good' });
+  });
+
   it('shows blocked playback and playing again', async () => {
     const { call, room } = await activeCall();
 
@@ -83,6 +111,108 @@ describe('WayloVoice state', () => {
     room.setAttributes('agent', { 'lk.agent.state': 'listening' });
     room.setPlayback(true);
     expect(states).toHaveLength(before);
+  });
+});
+
+function stagesOf(states: readonly WayloVoiceState[]): string[] {
+  return states.map(state => state.stage).filter((stage, index, all) => stage !== all[index - 1]);
+}
+
+describe('WayloVoice stage', () => {
+  it('goes from connecting through joining and preparing to the agent turns', async () => {
+    behavior.agent = 'later';
+    behavior.agentState = 'initializing';
+    const call = createCall();
+    const { states } = record(call);
+    const started = call.start(START);
+
+    await flush();
+    const room = lastRoom();
+
+    room.addAgent();
+    room.setAttributes('agent', { 'lk.agent.state': 'listening' });
+    await started;
+    room.setAttributes('agent', { 'lk.agent.state': 'thinking' });
+    room.setAttributes('agent', { 'lk.agent.state': 'speaking' });
+    room.setAttributes('agent', { 'lk.agent.state': 'listening' });
+    room.setAttributes('agent', { 'lk.agent.state': 'thinking' });
+
+    expect(stagesOf(states)).toEqual([
+      'connecting',
+      'joining',
+      'preparing',
+      'speaking',
+      'listening',
+      'thinking',
+    ]);
+  });
+
+  it('shows reconnecting, then the agent turn again', async () => {
+    const { room, states } = await activeCall();
+
+    room.setAttributes('agent', { 'lk.agent.state': 'speaking' });
+    room.emit('reconnecting');
+    room.emit('reconnected');
+
+    expect(stagesOf(states).slice(-3)).toEqual(['speaking', 'reconnecting', 'speaking']);
+  });
+
+  it('stays preparing across a reconnect before the agent first speaks', async () => {
+    const { call, room } = await activeCall();
+
+    room.emit('reconnecting');
+    room.emit('reconnected');
+
+    expect(call.getState().stage).toBe('preparing');
+  });
+
+  it('stays reconnecting until the agent is back after a full reconnect', async () => {
+    const { call, room } = await activeCall();
+
+    room.setAttributes('agent', { 'lk.agent.state': 'speaking' });
+    room.removeParticipant('agent');
+    room.state = 'reconnecting';
+    room.emit('reconnecting');
+    await flush();
+    room.state = 'connected';
+    room.emit('reconnected');
+    expect(call.getState().stage).toBe('reconnecting');
+
+    room.addAgent();
+    expect(call.getState().stage).toBe('listening');
+  });
+
+  it('goes straight to ended when the agent leaves', async () => {
+    const { agent, room, states } = await activeCall();
+
+    room.setAttributes('agent', { 'lk.agent.state': 'speaking' });
+    agent.attributes = { session_status: 'completed', session_end_reason: 'agent_end' };
+    room.removeParticipant('agent');
+    await flush();
+
+    expect(stagesOf(states).slice(-2)).toEqual(['speaking', 'ended']);
+  });
+
+  it('ends a failed start as ended', async () => {
+    serveSession({});
+    const call = createCall();
+
+    await call.start(START).catch(() => undefined);
+
+    expect(call.getState()).toMatchObject({ end: { status: 'failed' }, stage: 'ended' });
+  });
+
+  it('emits nothing after ended', async () => {
+    const { call, room, states } = await activeCall();
+
+    await call.stop();
+    const count = states.length;
+
+    room.setAttributes('agent', { 'lk.agent.state': 'speaking' });
+    room.emit('reconnecting');
+
+    expect(states).toHaveLength(count);
+    expect(states.at(-1)?.stage).toBe('ended');
   });
 });
 
@@ -128,9 +258,11 @@ describe('WayloVoice end of call', () => {
       connection: 'disconnected',
       end: { reason: 'caller_hangup', status: 'completed' },
       microphone: 'off',
+      network: 'good',
       playback: 'stopped',
       microphoneDeviceId: 'default',
       sessionId: 'session-1',
+      stage: 'ended',
       timings: expect.objectContaining({ agentReadyMs: expect.any(Number) }),
       volume: 1,
     });

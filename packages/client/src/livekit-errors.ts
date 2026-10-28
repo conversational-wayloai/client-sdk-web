@@ -1,12 +1,11 @@
 import {
   ConnectionError,
   ConnectionErrorReason,
-  DeviceUnsupportedError,
   DisconnectReason,
   MediaDeviceFailure,
 } from 'livekit-client';
 
-import { WayloVoiceError } from './errors.js';
+import { WayloVoiceError, type WayloVoiceErrorCode } from './errors.js';
 
 const UNAVAILABLE_MICROPHONE_ERRORS = new Set([
   'ConstraintNotSatisfiedError',
@@ -46,6 +45,19 @@ function toDebugCause(error: ConnectionError): unknown {
   };
 }
 
+function toMicrophoneErrorCode(error: unknown): WayloVoiceErrorCode {
+  if (errorName(error) === undefined) return 'MICROPHONE_UNAVAILABLE';
+
+  switch (MediaDeviceFailure.getFailure(error)) {
+    case MediaDeviceFailure.PermissionDenied:
+      return 'MICROPHONE_DENIED';
+    case MediaDeviceFailure.DeviceInUse:
+      return 'MICROPHONE_IN_USE';
+    default:
+      return 'MICROPHONE_UNAVAILABLE';
+  }
+}
+
 export function disconnectCause(message: string, reason: DisconnectReason | undefined): Error {
   const cause = new Error(message);
 
@@ -76,23 +88,7 @@ export function toConnectError(error: unknown, secrets: readonly string[]): Wayl
 }
 
 export function toMicrophoneError(error: unknown, secrets: readonly string[]): WayloVoiceError {
-  const name = errorName(error);
-
-  if (name === undefined) return new WayloVoiceError('CONNECTION_FAILED', error, secrets);
-
-  switch (MediaDeviceFailure.getFailure(error)) {
-    case MediaDeviceFailure.PermissionDenied:
-      return new WayloVoiceError('MICROPHONE_DENIED', error, secrets);
-    case MediaDeviceFailure.NotFound:
-    case MediaDeviceFailure.DeviceInUse:
-      return new WayloVoiceError('MICROPHONE_UNAVAILABLE', error, secrets);
-  }
-
-  if (error instanceof DeviceUnsupportedError || UNAVAILABLE_MICROPHONE_ERRORS.has(name)) {
-    return new WayloVoiceError('MICROPHONE_UNAVAILABLE', error, secrets);
-  }
-
-  return new WayloVoiceError('CONNECTION_FAILED', error, secrets);
+  return new WayloVoiceError(toMicrophoneErrorCode(error), error, secrets);
 }
 
 export function toWayloVoiceError(error: unknown, secrets: readonly string[]): WayloVoiceError {

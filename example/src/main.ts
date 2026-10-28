@@ -6,6 +6,7 @@ import {
   WayloVoiceError,
   type WayloVoiceErrorCode,
   type WayloVoiceListDevicesOptions,
+  type WayloVoiceStage,
   type WayloVoiceState,
   type WayloVoiceTimings,
   type WayloVoiceTranscript,
@@ -18,7 +19,8 @@ const HINTS: Partial<Record<WayloVoiceErrorCode, string>> = {
   AGENT_ERROR: 'The agent had a problem on our side. Try again later.',
   AGENT_TIMEOUT: "The agent didn't get ready in time. Try again.",
   MICROPHONE_DENIED: 'Allow microphone access in the browser and try again.',
-  MICROPHONE_UNAVAILABLE: 'Connect a microphone, close other apps using it, and try again.',
+  MICROPHONE_IN_USE: 'Close other apps or tabs using the microphone, and try again.',
+  MICROPHONE_UNAVAILABLE: 'Connect a microphone and try again.',
   SESSION_EXPIRED: 'The session expired. Click Talk again.',
   SPEAKER_UNAVAILABLE: 'Pick another speaker; the current one keeps playing.',
 };
@@ -41,16 +43,19 @@ const STARTUP_STEPS: readonly (readonly [string, TimingStep | undefined, TimingS
   ['Agent starts talking', 'agentReadyMs', 'agentSpeakingMs'],
 ];
 
-type View = 'connecting' | 'ended' | 'failed' | 'idle' | 'listening' | 'speaking' | 'thinking';
+type View = 'failed' | WayloVoiceStage;
 
 const LABELS: Record<View, string> = {
-  connecting: 'Connecting',
+  connecting: 'Calling the agent…',
   ended: 'Call ended',
   failed: 'Call failed',
   idle: '',
-  listening: 'Listening',
-  speaking: 'Speaking',
-  thinking: 'Thinking',
+  joining: 'The agent is joining…',
+  listening: "Go ahead, I'm listening",
+  preparing: 'The agent is getting ready…',
+  reconnecting: 'Reconnecting…',
+  speaking: 'The agent is speaking',
+  thinking: 'Thinking…',
 };
 
 function requireElement<T extends HTMLElement>(id: string): T {
@@ -78,6 +83,7 @@ const startupList = requireElement('startup-steps');
 const startupEnd = requireElement('startup-end');
 const viz = requireElement('viz');
 const statusLabel = requireElement('status');
+const networkNote = requireElement('network-note');
 const timerText = requireElement('timer');
 const statePills = requireElement('state-pills');
 const errorText = requireElement('error');
@@ -168,10 +174,12 @@ function log(call: number, text: string): void {
 
 function pillValues(state: WayloVoiceState): [string, string][] {
   return [
+    ['stage', state.stage],
     ['connection', state.connection],
     ['agent', state.agent],
     ['mic', state.microphone],
     ['playback', state.playback],
+    ['network', state.network],
   ];
 }
 
@@ -204,6 +212,7 @@ function render(state: WayloVoiceState): void {
   statusLabel.dataset.state = view;
   viz.dataset.state = view;
   sessionText.textContent = `Session ${state.sessionId ?? '—'}`;
+  networkNote.hidden = state.network !== 'poor';
   renderPills(state);
   renderCallButton(state);
   renderTimer(state);
@@ -406,12 +415,7 @@ function upsertRow(line: WayloVoiceTranscript): void {
 }
 
 function viewOf(state: WayloVoiceState): View {
-  if (state.end) return state.end.status === 'failed' ? 'failed' : 'ended';
-  if (state.connection === 'idle') return 'idle';
-  if (state.connection !== 'connected') return 'connecting';
-  if (state.agent === 'none' || state.agent === 'joining') return 'connecting';
-
-  return state.agent;
+  return state.end?.status === 'failed' ? 'failed' : state.stage;
 }
 
 callButton.addEventListener('click', async () => {

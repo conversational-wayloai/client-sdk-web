@@ -14,7 +14,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "llms.txt",
+    "README.md"
   ],
   "sideEffects": false,
   "scripts": {

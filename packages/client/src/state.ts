@@ -12,9 +12,14 @@ export type WayloVoiceConnection =
 
 /** How the call ended, as this browser saw it. The stored session is the record. */
 export type WayloVoiceEnd =
-  | { readonly reason?: WayloVoiceEndReason; readonly status: 'completed' }
+  | {
+      /** Why the session ended, when the agent reported it. */
+      readonly reason?: WayloVoiceEndReason;
+      readonly status: 'completed';
+    }
   | {
       readonly error: WayloVoiceError;
+      /** Why the session ended, when the agent reported it. */
       readonly reason?: WayloVoiceEndReason;
       readonly status: 'failed';
     };
@@ -49,14 +54,18 @@ export type WayloVoiceStage =
 
 /** A microphone or speaker. `label` is empty until the visitor allows the microphone. */
 export interface WayloVoiceDevice {
+  /** Pass it to `setMicrophoneDevice()` or `setSpeakerDevice()`. */
   readonly deviceId: string;
+  /** The name to show, such as "MacBook Pro Microphone". */
   readonly label: string;
 }
 
 export interface WayloVoiceDevices {
   /** False where the browser can't route audio to a chosen speaker (Safari, every iOS browser); `speakers` is then empty. */
   readonly canChooseSpeaker: boolean;
+  /** Audio inputs, in the browser's order. */
   readonly microphones: readonly WayloVoiceDevice[];
+  /** Audio outputs, in the browser's order. */
   readonly speakers: readonly WayloVoiceDevice[];
 }
 

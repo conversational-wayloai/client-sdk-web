@@ -2,6 +2,7 @@ import { abortable } from './abortable.js';
 import { WayloVoiceError, type WayloVoiceErrorCode } from './errors.js';
 import { requireSession, type WebSessionBootstrap } from './session.js';
 
+/** Returns extra headers for the session endpoint request, such as `Authorization`. */
 export type SessionHeaders = () => Record<string, string> | Promise<Record<string, string>>;
 
 export interface SessionRequest {

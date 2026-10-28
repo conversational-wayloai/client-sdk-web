@@ -213,6 +213,10 @@ The session body has this shape (the SDK checks it; your page never sees it):
 
 The troubleshooting section of the [example README](example/README.md) says what to do about each one.
 
+## For AI coding assistants
+
+The package includes `llms.txt` (`node_modules/@waylovoice/client/llms.txt`), a one-file summary of this SDK for AI assistants.
+
 ## Example
 
 [`example/`](example/) is a minimal page and Node server that make a real call. Its [README](example/README.md) covers setup and running it.

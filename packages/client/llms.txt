@@ -1,0 +1,287 @@
+# @waylovoice/client
+
+> Browser SDK for voice calls with a Waylo voice agent. The web page names the agent; the SDK asks the site's own backend for a call session, joins the call, turns on the microphone, plays the agent's voice and reports state, captions, errors, devices and timings. Framework-free TypeScript; works with any front end.
+
+Rules an assistant must follow:
+
+- A Waylo API key (`sk_waylo_…`) never goes to the browser. The site's backend holds it and serves a session endpoint; the page only gives the SDK that endpoint's URL.
+- The session endpoint must be on the same origin as the page.
+- One `WayloVoice` instance is one call. Create a new one for every call, with its own listeners.
+- Call `start()` from a click handler, before any `await`, so the browser lets the agent's audio play.
+- The package is ESM with TypeScript types included.
+- Decide on `error.code`, never on `error.message`.
+
+## Install
+
+```sh
+pnpm add @waylovoice/client
+```
+
+Until it is published, install the packed tarball: `pnpm add ./waylovoice-client-<version>.tgz`. The page code needs a bundler (Vite, esbuild, webpack…) to resolve the import.
+
+## Backend: the session endpoint
+
+One route on the site's backend. It checks the site's own login, then calls the Waylo API with the API key and returns the response body unchanged.
+
+- The SDK sends `POST {sessionEndpoint}` with JSON `{ "agentId": string, "metadata"?: object }` and the site's cookies.
+- Answer `200` with the body of `POST {WAYLO_API_URL}/sessions/web` and `Cache-Control: no-store`; `401` when not logged in; `403` when the visitor may not use the agent; `429` when rate limited. Never redirect.
+- The Waylo request: `POST {WAYLO_API_URL}/sessions/web`, headers `Authorization: Bearer {WAYLO_API_KEY}` and `Content-Type: application/json`, body `{ "workspaceId", "agentId", "metadata"? }`. The key needs the `sessions:create` scope.
+
+```js
+// Node 18+ with Express 4. Reads WAYLO_API_URL, WAYLO_API_KEY, WORKSPACE_ID, AGENT_ID and PORT from the environment.
+import express from 'express';
+
+const app = express();
+
+// The agent id is not secret; a page may also hard-code it.
+app.get('/api/agent', (request, response) => response.json({ agentId: process.env.AGENT_ID }));
+
+app.post('/api/waylo/session', express.json(), async (request, response) => {
+  // Check your own login here; answer 401 when there is none.
+  const { agentId, metadata } = request.body ?? {};
+
+  if (agentId !== process.env.AGENT_ID) return response.status(403).json({ error: 'access_denied' });
+
+  const upstream = await fetch(`${process.env.WAYLO_API_URL}/sessions/web`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.WAYLO_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ workspaceId: process.env.WORKSPACE_ID, agentId, metadata }),
+  }).catch(() => undefined);
+
+  // A Waylo 401/403 is about your key, not the visitor: log it and answer 502.
+  if (!upstream?.ok) return response.status(upstream?.status === 429 ? 429 : 502).end();
+
+  response.set('Cache-Control', 'no-store').type('application/json');
+  response.status(200).send(await upstream.text());
+});
+
+app.use(express.static('public')); // the page and its bundled script
+app.listen(Number(process.env.PORT ?? 3000));
+```
+
+## Page
+
+Markup: a button `#talk`, a paragraph `#status`, a hidden button `#resume` and a list `#captions`. Bundle the script (e.g. `esbuild src/main.ts --bundle --format=esm --outfile=public/main.js`) and load it with `<script type="module" src="/main.js"></script>`.
+
+```ts
+import {
+  WayloVoice,
+  WayloVoiceError,
+  type WayloVoiceStage,
+  type WayloVoiceState,
+} from '@waylovoice/client';
+
+const AGENT_ID = 'your-agent-id'; // or load it from GET /api/agent before the click
+const talkButton = document.querySelector<HTMLButtonElement>('#talk')!;
+const resumeButton = document.querySelector<HTMLButtonElement>('#resume')!;
+const statusText = document.querySelector<HTMLElement>('#status')!;
+const captions = document.querySelector<HTMLElement>('#captions')!;
+let wayloVoice: WayloVoice | undefined;
+
+const STATUS: Record<WayloVoiceStage, string> = {
+  idle: '',
+  connecting: 'Calling the agent…',
+  joining: 'The agent is joining…',
+  preparing: 'The agent is getting ready…',
+  speaking: 'The agent is speaking',
+  listening: "Go ahead, I'm listening",
+  thinking: 'Thinking…',
+  reconnecting: 'Reconnecting…',
+  ended: 'Call ended',
+};
+
+function isLive(state: WayloVoiceState): boolean {
+  return state.connection !== 'idle' && !state.end;
+}
+
+function render(state: WayloVoiceState): void {
+  talkButton.textContent = isLive(state) ? 'Hang up' : 'Talk';
+  resumeButton.hidden = state.playback !== 'blocked';
+
+  if (state.end?.status === 'failed') {
+    statusText.textContent = `Call failed: ${state.end.error.code}`;
+  } else if (state.end) {
+    statusText.textContent = `Call ended (${state.end.reason ?? 'done'})`;
+  } else {
+    const weak = state.network === 'poor' ? ' · Your connection is weak, you may hear gaps' : '';
+
+    statusText.textContent = STATUS[state.stage] + weak;
+  }
+}
+
+talkButton.addEventListener('click', () => {
+  if (wayloVoice && isLive(wayloVoice.getState())) {
+    void wayloVoice.stop();
+
+    return;
+  }
+
+  captions.replaceChildren();
+  wayloVoice = new WayloVoice({ sessionEndpoint: '/api/waylo/session' });
+  wayloVoice.on('state', render);
+  wayloVoice.on('transcript', line => {
+    let row = document.getElementById(line.id);
+
+    if (!row) {
+      row = document.createElement('li');
+      row.id = line.id;
+      captions.append(row);
+    }
+
+    row.textContent = `${line.speaker}: ${line.text}`;
+  });
+  wayloVoice.on('error', error => console.warn(error.code));
+  // A failed start() also ends with state.end; render() shows it, so the rejection needs no handling.
+  wayloVoice.start({ agentId: AGENT_ID }).catch((error: unknown) => {
+    if (error instanceof WayloVoiceError) console.warn(error.code);
+  });
+});
+
+resumeButton.addEventListener('click', () => void wayloVoice?.resumeAudio());
+```
+
+Lifecycle: a new instance's state is `connection: 'idle'` with no `end`. `start()` sets `connection: 'connecting'` before it returns, so a second click sees a live call. `stop()` never rejects; after it the last state has `end: { status: 'completed', reason: 'caller_hangup' }` (or `failed` with `CANCELLED` if the call was still starting). A failed `start()` rejects and ends with `state.end`; it does not also emit `error`.
+
+## API
+
+`new WayloVoice(options)` — throws `RangeError` for invalid options. Safe to create on page load.
+
+| Option | Meaning |
+| --- | --- |
+| `sessionEndpoint` | Required. Same-origin URL of the backend session endpoint. |
+| `headers` | Optional. `() => Record<string, string>` or a promise of one; extra headers for the session endpoint, e.g. `Authorization`. |
+| `agentTimeoutMs` | Optional. How long `start()` waits for the agent. Default 20000. |
+
+| Member | Does |
+| --- | --- |
+| `start({ agentId, metadata? })` | Joins the call; resolves once the agent is ready. Rejects with `WayloVoiceError`. Once per instance. |
+| `stop()` | Hangs up and releases everything. Safe at any time; during `start()` it makes `start()` reject with `CANCELLED`. |
+| `getState()` | The current state snapshot (frozen). |
+| `getMicrophoneLevel()` | The visitor's live mic level, 0 to 1; 0 unless `state.microphone` is `'on'`. Not in `state`: poll it with `requestAnimationFrame` to draw a meter. |
+| `on(event, listener)` | Adds a listener; returns a function that removes it. |
+| `off(event, listener)` | Removes a listener. |
+| `setMuted(muted)` | Mutes or unmutes the microphone; works before `start()`. |
+| `setVolume(volume)` | Agent volume, 0 to 1. |
+| `resumeAudio()` | Call from a click when `state.playback` is `'blocked'`. |
+| `setMicrophoneDevice(deviceId)` | Uses this microphone, before or during the call. |
+| `setSpeakerDevice(deviceId)` | Uses this speaker; rejects `SPEAKER_UNAVAILABLE` where the browser can't choose one. |
+| `WayloVoice.listDevices()` | Static. `{ microphones, speakers, canChooseSpeaker }`; each device is `{ deviceId, label }`. |
+
+## Events
+
+| Event | Payload |
+| --- | --- |
+| `state` | The whole state snapshot, on every change. The last one has `end`; nothing is emitted after it. |
+| `transcript` | `{ id, speaker: 'agent' \| 'user', text, final }`. Sent again as the line grows: replace the row with the same `id`. |
+| `error` | A `WayloVoiceError` for a problem after `start()` resolved, or one with no promise to reject. |
+
+## State
+
+| Field | Values |
+| --- | --- |
+| `stage` | `'idle'`, `'connecting'`, `'joining'`, `'preparing'`, `'speaking'`, `'listening'`, `'thinking'`, `'reconnecting'`, `'ended'`: which moment of the call it is. Use it for the status line (see Status line). |
+| `connection` | `'idle'`, `'connecting'`, `'connected'`, `'reconnecting'`, `'disconnected'` |
+| `agent` | `'none'`, `'joining'`, `'listening'`, `'thinking'`, `'speaking'` |
+| `microphone` | `'off'`, `'on'`, `'muted'` |
+| `network` | `'good'`, `'poor'`, `'lost'`: this browser's connection to the call; `'good'` outside a call. Show a non-blocking banner while it is not `'good'`. |
+| `playback` | `'stopped'`, `'playing'`, `'blocked'` (show a button that calls `resumeAudio()`) |
+| `volume` | Last `setVolume()` value, default 1 |
+| `sessionId` | The Waylo session id, once known |
+| `microphoneDeviceId` | The chosen microphone, or the one in use once the call has it; unset or `'default'` means the system default |
+| `speakerDeviceId` | The chosen speaker, or the one in use once the call has it; unset or `'default'` means the system default |
+| `timings` | How long each step took (see Timings) |
+| `end` | Set once at the end: `{ status: 'completed', reason? }` or `{ status: 'failed', reason?, error }` |
+
+`end.reason` is one of `caller_hangup`, `caller_inactive`, `caller_goodbye`, `agent_end`, `busy`, `no_answer`, `rejected`, `cancelled`, `provider_error`, `provider_key_failed`, `worker_error`, `max_duration`, `timeout`.
+
+## Status line
+
+The SDK shows no text; map `state.stage` to words. Recommended wording (`{agent}` is the agent's name, or "the agent"):
+
+| `stage` | Status text |
+| --- | --- |
+| `idle` | nothing, or the Talk button |
+| `connecting` | Calling {agent}… (session and room) |
+| `joining` | {agent} is joining… (in the call, waiting for the agent) |
+| `preparing` | {agent} is getting ready… (the agent is ready but hasn't spoken yet) |
+| `speaking` | {agent} is speaking |
+| `listening` | Go ahead, I'm listening |
+| `thinking` | Thinking… |
+| `reconnecting` | Reconnecting… |
+| `ended` | Call ended, or the failure in `state.end` |
+
+While `state.network` is `'poor'`, also show "Your connection is weak, you may hear gaps".
+
+## Devices
+
+```ts
+const devices = await WayloVoice.listDevices();
+const microphone = devices.microphones[0];
+
+if (microphone) await wayloVoice?.setMicrophoneDevice(microphone.deviceId);
+```
+
+- `listDevices()` never asks for permission. Until the visitor allows the microphone, lists are empty or unnamed: list again when `state.microphone` becomes `'on'` and on `navigator.mediaDevices` `devicechange`.
+- `listDevices({ requestPermission: true })` asks for the microphone first (call it from a click), closes it again and returns named devices; it rejects `MICROPHONE_DENIED` if the visitor blocks it.
+- `canChooseSpeaker` is false on Safari and every iOS browser; `speakers` is then empty. Hide the speaker picker whenever `speakers` is empty (Firefox before 140 lists none).
+- Setters work before `start()`; a chosen device that is gone by then falls back to the system default, and state shows the device in use.
+- Mid-call, a mic that can't be opened rejects with `MICROPHONE_UNAVAILABLE` (`MICROPHONE_IN_USE` when another app holds it, `MICROPHONE_DENIED` when the browser blocks it) and the call keeps a working mic where it can; after an unplugged mic (`error` event `MICROPHONE_UNAVAILABLE`), set another one to carry on. Safari can send that event when the system default mic changes, then reopen the new default itself; `state.microphone` turns back to `'on'`.
+
+## Timings
+
+`state.timings` is unset before `start()`. Then it holds `startedAt` (`Date.now()` when `start()` was called, i.e. the click) and, in whole milliseconds after `start()`, each step as it is reached, with a `state` event each time:
+
+- `sessionReadyMs`: the session endpoint answered.
+- `connectedMs`: this browser joined the call.
+- `microphoneReadyMs`: the microphone is live in the call. It opens while the call connects, so the time the visitor takes to allow it overlaps the earlier steps.
+- `agentReadyMs`: the agent reported its first activity state; `start()` resolves once the microphone is ready too.
+- `agentSpeakingMs`: the agent starts speaking while `playback` is `'playing'`; its audio arrives a few hundred milliseconds later. If audio was blocked, it is set once `resumeAudio()` lets it play while the agent speaks, or at the agent's next turn. This is the visitor's wait to hear the agent.
+
+A step not reached is unset. Steps can be reached out of order: the agent can be ready before the microphone.
+
+`state.timings` is for logging and monitoring; don't show it to visitors, show the call status instead.
+
+```ts
+wayloVoice?.on('state', state => {
+  if (state.timings?.agentSpeakingMs !== undefined) console.info('agent speaking after', state.timings.agentSpeakingMs);
+});
+```
+
+## Errors
+
+`WayloVoiceError` has a fixed `code`. `start()` rejects with it; later problems arrive as `error` events and in `state.end.error`.
+
+| Code | What happened | What to tell the visitor | Try again? |
+| --- | --- | --- | --- |
+| `AUTH_REQUIRED` | The session endpoint answered 401 or redirected. | "Please sign in to talk." | After signing in |
+| `ACCESS_DENIED` | The session endpoint answered 403. | "You can't use this assistant." | No |
+| `LIMIT_REACHED` | The session endpoint answered 429. | "Too many calls right now. Try again in a minute." | Yes, later |
+| `INVALID_SESSION` | The session endpoint's 200 body is not a Waylo session; return it unchanged. | "Something went wrong. Please try again later." | No, fix the endpoint |
+| `SESSION_EXPIRED` | The session expired or was rejected. | "Please try again." | Yes, new call |
+| `CONNECTION_FAILED` | The endpoint failed or took over 15 s, the call could not connect, or it dropped. | "Couldn't connect. Check your internet and try again." | Yes |
+| `MICROPHONE_DENIED` | The visitor or the browser blocked the microphone. | "Allow the microphone in your browser, then try again." | After allowing it |
+| `MICROPHONE_IN_USE` | Another app or tab holds the microphone, or the system could not start it. | "Your microphone is busy. Close other apps using it, then try again." | Yes |
+| `MICROPHONE_UNAVAILABLE` | No usable microphone, the chosen one can't be opened, or the browser refused it for another reason. The original error is in `cause`. | "No working microphone found. Connect one, then try again." | Yes, after fixing it |
+| `SPEAKER_UNAVAILABLE` | The chosen speaker can't be used or the browser can't choose one; the current speaker keeps playing. | Nothing; hide or reset the speaker picker. | Not needed |
+| `AGENT_TIMEOUT` | The agent wasn't ready in time. | "The assistant isn't available right now. Try again." | Yes |
+| `AGENT_LEFT` | The agent left without ending the call. | "The call dropped. Start a new one." | Yes, new call |
+| `AGENT_ERROR` | The agent hit an error and ended the call; `state.end.reason` says why. | "Something went wrong. Try again." | Yes, new call |
+| `TRANSCRIPT_FAILED` | One caption line couldn't be read; the call goes on. | Nothing. | Not needed |
+| `ALREADY_STARTED` | `start()` was called twice on one instance; a code bug. | Nothing; create a new `WayloVoice` per call. | Not needed |
+| `CANCELLED` | `stop()` was called while starting. | Nothing. | Not needed |
+
+## Common mistakes
+
+- Putting the API key, or a call to the Waylo API, in browser code.
+- Reusing a `WayloVoice` for a second call (`ALREADY_STARTED`).
+- Calling `start()` after an `await` in the click handler (audio may be blocked; handle `playback: 'blocked'`).
+- A session endpoint on another domain (the constructor throws), or one that changes the Waylo response.
+- Opening the page over plain http other than `localhost`: browsers then give no microphone.
+
+## Optional
+
+- [README](https://github.com/conversational-wayloai/client-sdk-web#readme): full guide, endpoint contract, security notes.
+- [Example app](https://github.com/conversational-wayloai/client-sdk-web/tree/main/example): a working page and Node server.

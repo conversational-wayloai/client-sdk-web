@@ -56,6 +56,7 @@ export class WayloVoiceError extends Error {
   /** What went wrong; use it to decide what to do. */
   readonly code: WayloVoiceErrorCode;
 
+  /** The SDK creates these; host code only reads them. */
   constructor(code: WayloVoiceErrorCode, cause?: unknown, secrets: readonly string[] = []) {
     super(
       MESSAGES[code],

@@ -50,6 +50,7 @@ import {
   type WayloVoiceState,
   type WayloVoiceTranscript,
 } from './state.js';
+import { agentStepsReached, CallTimer, type TimingStep } from './timings.js';
 import { listenToTranscripts, TRANSCRIPTION_TOPIC } from './transcripts.js';
 
 interface CallInspection {
@@ -104,6 +105,7 @@ export class WayloVoice {
   readonly #events = new Emitter<WayloVoiceEvents>();
   readonly #transcriptAbort = new AbortController();
   readonly #cleanups: (() => void)[] = [];
+  readonly #timer = new CallTimer();
   #deviceChanges: Promise<void> = Promise.resolve();
   #microphoneChoice: string | undefined;
   #phase: CallPhase = 'idle';
@@ -346,21 +348,29 @@ export class WayloVoice {
     const startAbort = new AbortController();
     const { signal } = startAbort;
     let secrets: string[] = [];
+    let microphone: Promise<LocalTrack> | undefined;
 
     this.#startAbort = startAbort;
 
     try {
       const room = this.#createRoom();
+      const requested = this.#microphoneChoice;
+
+      microphone = openMicrophone(room, requested);
+      microphone.catch((error: unknown) => startAbort.abort(error));
       const session = await this.#openSession(request, signal);
 
       secrets = secretsFrom(session);
+      this.#markTiming('sessionReadyMs');
 
       await this.#connect(room, session, signal, secrets);
       this.#isConnected = true;
       signal.throwIfAborted();
+      this.#markTiming('connectedMs');
 
-      await this.#enableMicrophone(room, signal, secrets);
+      await this.#enableMicrophone(room, microphone, requested, signal, secrets);
       signal.throwIfAborted();
+      this.#markTiming('microphoneReadyMs');
       // After the mic: some browsers list speakers only once the mic is allowed.
       await this.#queueChange(() => this.#applySpeaker(room));
 
@@ -371,6 +381,7 @@ export class WayloVoice {
       this.#syncAgent(room);
       this.#setPhase('active');
     } catch (error) {
+      microphone?.then(track => track.stop()).catch(() => undefined);
       throw await this.#startFailure(error, signal, secrets);
     }
   }
@@ -447,14 +458,15 @@ export class WayloVoice {
 
   async #enableMicrophone(
     room: Room,
+    microphone: Promise<LocalTrack>,
+    requested: string | undefined,
     signal: AbortSignal,
     secrets: readonly string[],
   ): Promise<void> {
-    const requested = this.#microphoneChoice;
     const track = await abortableStep(
-      this.#publishMicrophone(room, requested, signal),
+      this.#publishMicrophone(room, microphone, signal),
       signal,
-      error => toMicrophoneError(error, secrets),
+      error => toWayloVoiceError(error, secrets),
     );
 
     // setMuted() during publishTrack only stored the flag; apply it now.
@@ -474,25 +486,18 @@ export class WayloVoice {
   // What setMicrophoneEnabled(true) does, with a mute applied between getUserMedia and publishing.
   async #publishMicrophone(
     room: Room,
-    deviceId: string | undefined,
+    microphone: Promise<LocalTrack>,
     signal: AbortSignal,
   ): Promise<LocalTrack> {
-    const [track] = await createMicrophoneTracks(room, deviceId);
+    const track = await microphone;
 
-    if (!track) throw new DeviceUnsupportedError('No microphone track was created.');
+    // getUserMedia finishes even after cancel; never publish then. #startCall stops the track.
+    signal.throwIfAborted();
+    if (this.#muted) await track.mute();
+    await room.localParticipant.publishTrack(track);
+    signal.throwIfAborted();
 
-    try {
-      // getUserMedia finishes even after cancel; never publish then, and stop the track below.
-      signal.throwIfAborted();
-      if (this.#muted) await track.mute();
-      await room.localParticipant.publishTrack(track);
-      signal.throwIfAborted();
-
-      return track;
-    } catch (error) {
-      track.stop();
-      throw error;
-    }
+    return track;
   }
 
   #watchMicrophone(room: Room, track: LocalTrack): void {
@@ -717,11 +722,29 @@ export class WayloVoice {
 
   #updateState(changes: Partial<WayloVoiceState>): void {
     if (this.#ending) return;
-    const next = mergeState(this.#state, changes);
+    let next = mergeState(this.#state, changes);
 
     if (!next) return;
+
+    const { timings } = next;
+
+    if (timings) {
+      const marked = agentStepsReached(next).reduce(
+        (reached, step) => this.#timer.mark(reached, step),
+        timings,
+      );
+
+      if (marked !== timings) next = Object.freeze({ ...next, timings: marked });
+    }
+
     this.#state = next;
     this.#events.emit('state', next);
+  }
+
+  #markTiming(step: TimingStep): void {
+    const { timings } = this.#state;
+
+    if (timings) this.#updateState({ timings: this.#timer.mark(timings, step) });
   }
 
   #close(end: WayloVoiceEnd): void {
@@ -754,7 +777,11 @@ export class WayloVoice {
     if (this.#phase === phase) return;
     this.#phase = phase;
     this.#phaseEvents.emit('phase', phase);
-    if (phase === 'starting') this.#updateState({ connection: 'connecting' });
+
+    if (phase === 'starting') {
+      this.#updateState({ connection: 'connecting', timings: this.#timer.start() });
+    }
+
     if (phase === 'active') this.#updateState({ connection: 'connected' });
   }
 }
@@ -779,18 +806,6 @@ function connectionFailed(reason: DisconnectReason | undefined): WayloVoiceError
   return new WayloVoiceError('CONNECTION_FAILED', disconnectCause(ROOM_DISCONNECTED, reason));
 }
 
-async function createMicrophoneTracks(room: Room, deviceId: string | undefined) {
-  if (deviceId === undefined) return room.localParticipant.createTracks({ audio: true });
-
-  try {
-    return await room.localParticipant.createTracks({ audio: { deviceId: { exact: deviceId } } });
-  } catch (error) {
-    if (!isMissingDevice(error)) throw error;
-
-    return room.localParticipant.createTracks({ audio: true });
-  }
-}
-
 function failedEnd(error: WayloVoiceError, reason?: SessionEndReason): WayloVoiceEnd {
   return reason ? { error, reason, status: 'failed' } : { error, status: 'failed' };
 }
@@ -801,6 +816,26 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function microphoneTrack(room: Room): LocalTrack | undefined {
   return room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
+}
+
+async function openMicrophone(room: Room, deviceId: string | undefined): Promise<LocalTrack> {
+  const { localParticipant } = room;
+
+  try {
+    const [track] = await localParticipant
+      .createTracks({ audio: deviceId === undefined ? true : { deviceId: { exact: deviceId } } })
+      .catch((error: unknown) => {
+        if (deviceId === undefined || !isMissingDevice(error)) throw error;
+
+        return localParticipant.createTracks({ audio: true });
+      });
+
+    if (!track) throw new DeviceUnsupportedError('No microphone track was created.');
+
+    return track;
+  } catch (error) {
+    throw toMicrophoneError(error, []);
+  }
 }
 
 async function reopenMicrophone(room: Room, deviceId: string): Promise<void> {

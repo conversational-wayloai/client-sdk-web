@@ -42,7 +42,7 @@ beforeEach(() => {
 
 describe('WayloVoice', () => {
   describe('stop() during start()', () => {
-    it('aborts the session fetch, never connects and never turns the mic on', async () => {
+    it('aborts the session fetch, never connects and releases the mic', async () => {
       const gate = deferred<Response>();
 
       sessionEndpoint.respond = () => gate.promise;
@@ -59,7 +59,7 @@ describe('WayloVoice', () => {
       await flush();
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(lastRoom().connect).not.toHaveBeenCalled();
-      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
+      expect(lastRoom().localParticipant.publishTrack).not.toHaveBeenCalled();
     });
 
     it('cancels while headers() is pending and never calls the endpoint', async () => {
@@ -80,10 +80,10 @@ describe('WayloVoice', () => {
       const started = call.start(START);
 
       await expectCancelledAndClean(call, started);
-      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
+      expect(lastRoom().localParticipant.publishTrack).not.toHaveBeenCalled();
     });
 
-    it('disconnects the room during connect so the pending connect rejects', async () => {
+    it('disconnects the room during connect and releases the open mic', async () => {
       const gate = deferred();
 
       behavior.connect = () => gate.promise;
@@ -95,7 +95,7 @@ describe('WayloVoice', () => {
       await expectCancelledAndClean(call, started);
       gate.resolve();
       await flush();
-      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
+      expect(lastRoom().localParticipant.publishTrack).not.toHaveBeenCalled();
       expect(lastRoom().state).toBe('disconnected');
     });
 

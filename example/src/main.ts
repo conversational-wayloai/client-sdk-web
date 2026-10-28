@@ -7,6 +7,7 @@ import {
   type WayloVoiceErrorCode,
   type WayloVoiceListDevicesOptions,
   type WayloVoiceState,
+  type WayloVoiceTimings,
   type WayloVoiceTranscript,
 } from '@waylovoice/client';
 
@@ -28,6 +29,17 @@ const END_SENTENCES: Partial<Record<WayloVoiceEndReason, string>> = {
   caller_inactive: 'Ended for inactivity',
   max_duration: 'Reached the maximum duration',
 };
+
+type TimingStep = Exclude<keyof WayloVoiceTimings, 'startedAt'>;
+
+// Label, the mark it starts at (unset: the click) and the mark it ends at.
+const STARTUP_STEPS: readonly (readonly [string, TimingStep | undefined, TimingStep])[] = [
+  ['Create session', undefined, 'sessionReadyMs'],
+  ['Join call', 'sessionReadyMs', 'connectedMs'],
+  ['Turn on mic', undefined, 'microphoneReadyMs'],
+  ['Agent ready', 'connectedMs', 'agentReadyMs'],
+  ['Agent starts talking', 'agentReadyMs', 'agentSpeakingMs'],
+];
 
 type View = 'connecting' | 'ended' | 'failed' | 'idle' | 'listening' | 'speaking' | 'thinking';
 
@@ -60,6 +72,10 @@ const deviceNamesButton = requireElement<HTMLButtonElement>('device-names');
 const speakerChoice = requireElement('speaker-choice');
 const speakerNote = requireElement('speaker-note');
 const deviceHint = requireElement('device-hint');
+const startup = requireElement('startup');
+const startupTotal = requireElement('startup-total');
+const startupList = requireElement('startup-steps');
+const startupEnd = requireElement('startup-end');
 const viz = requireElement('viz');
 const statusLabel = requireElement('status');
 const timerText = requireElement('timer');
@@ -128,6 +144,10 @@ function followLatest(change: () => void): void {
   if (nearBottom) box.scrollTop = box.scrollHeight;
 }
 
+function formatSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
 function formatTime(ms: number): string {
   const minutes = Math.floor(ms / 60_000);
   const seconds = Math.floor(ms / 1000) % 60;
@@ -189,6 +209,7 @@ function render(state: WayloVoiceState): void {
   renderTimer(state);
   resumeButton.hidden = state.playback !== 'blocked';
   renderDevices(state);
+  renderTimings(state);
   followLatest(() => {
     thinking.hidden = view !== 'thinking';
   });
@@ -238,6 +259,43 @@ function renderTimer(state: WayloVoiceState): void {
   if (state.end) window.clearInterval(clock);
 }
 
+function renderTimings({ timings }: WayloVoiceState): void {
+  const totalMs = timings?.agentSpeakingMs;
+
+  startup.hidden = totalMs === undefined;
+  if (!timings || totalMs === undefined) return;
+
+  const bars = STARTUP_STEPS.flatMap(([label, from, to]) => {
+    const endMs = timings[to];
+    const fromMs = from ? timings[from] : 0;
+
+    return endMs === undefined || fromMs === undefined
+      ? []
+      : [{ endMs, label, startMs: Math.min(fromMs, endMs), to }];
+  });
+  const axisMs = Math.max(...bars.map(({ endMs }) => endMs));
+  const percent = (ms: number) => `${(ms / axisMs) * 100}%`;
+
+  startupTotal.textContent = formatSeconds(totalMs);
+  startupList.replaceChildren(
+    ...bars.map(({ endMs, label, startMs, to }) => {
+      const item = document.createElement('li');
+      const track = document.createElement('span');
+      const bar = document.createElement('span');
+
+      item.dataset.mark = to;
+      track.className = 'startup-track';
+      bar.style.left = percent(startMs);
+      bar.style.width = percent(endMs - startMs);
+      track.append(bar);
+      item.append(textSpan(label), track, textSpan(formatSeconds(endMs - startMs)));
+
+      return item;
+    }),
+  );
+  startupEnd.textContent = formatSeconds(axisMs);
+}
+
 function resetCallView(): void {
   rows.clear();
   transcriptList.replaceChildren(thinking);
@@ -245,6 +303,7 @@ function resetCallView(): void {
   window.clearInterval(clock);
   startedAt = undefined;
   timerText.textContent = '';
+  startup.hidden = true;
   endSummary.hidden = true;
   showError('');
 }
@@ -287,6 +346,10 @@ function startCall(id: string): WayloVoice {
 
     if (changes) log(call, changes);
 
+    if (state.timings && state.timings !== previous.timings) {
+      log(call, `timings ${JSON.stringify(state.timings)}`);
+    }
+
     if (state.microphone !== 'off' && previous.microphone === 'off') {
       refreshDevices().catch(() => undefined);
     }
@@ -310,6 +373,14 @@ function startCall(id: string): WayloVoice {
   wayloVoice.start({ agentId: id }).catch(() => undefined);
 
   return wayloVoice;
+}
+
+function textSpan(text: string): HTMLSpanElement {
+  const span = document.createElement('span');
+
+  span.textContent = text;
+
+  return span;
 }
 
 function tick(): void {

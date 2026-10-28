@@ -48,7 +48,7 @@ export function createAudioTrack() {
 }
 
 export function createLocalParticipant(
-  enableMicrophone: (deviceId: string) => Promise<void>,
+  enableMicrophone: (deviceId: string) => Promise<boolean | void>,
   onPublished: (deviceId: string) => void = () => undefined,
 ) {
   const participant = {
@@ -60,7 +60,7 @@ export function createLocalParticipant(
     createTracks: vi.fn(async (options: { audio: boolean | { deviceId: { exact: string } } }) => {
       const deviceId = typeof options.audio === 'object' ? options.audio.deviceId.exact : 'default';
 
-      await enableMicrophone(deviceId);
+      if ((await enableMicrophone(deviceId)) === false) return [];
       const track = createLocalTrack();
 
       track.deviceId = deviceId;

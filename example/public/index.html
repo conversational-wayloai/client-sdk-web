@@ -349,6 +349,58 @@
       .card p {
         margin: 0;
       }
+      #startup:not([hidden]) {
+        display: grid;
+        grid-template-columns: max-content minmax(3rem, 1fr) max-content;
+        align-items: center;
+        gap: 0.375rem 0.75rem;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      #startup-steps,
+      #startup-steps li {
+        display: contents;
+      }
+      #startup-steps li span:last-child {
+        text-align: right;
+      }
+      .startup-track {
+        position: relative;
+        height: 0.5rem;
+        border-radius: 999px;
+        background: #f0f0f0;
+      }
+      .startup-track span {
+        position: absolute;
+        inset-block: 0;
+        min-width: 2px;
+        border-radius: 999px;
+        background: var(--mark);
+      }
+      #startup-axis {
+        display: flex;
+        grid-column: 2;
+        justify-content: space-between;
+        font-size: 0.75rem;
+      }
+      [data-mark='sessionReadyMs'] {
+        --mark: #9fb7d9;
+      }
+      [data-mark='connectedMs'] {
+        --mark: #a8cfb0;
+      }
+      [data-mark='microphoneReadyMs'] {
+        --mark: #e3c89a;
+      }
+      [data-mark='agentReadyMs'] {
+        --mark: #c7b0d9;
+      }
+      [data-mark='agentSpeakingMs'] {
+        --mark: #d9a8a8;
+      }
+      #startup:not([hidden]) + .empty {
+        display: none;
+      }
       #events:empty {
         padding: 0;
         font-family: system-ui, sans-serif;
@@ -441,6 +493,14 @@
             <span data-value="stopped">playback: stopped</span>
           </p>
           <p id="session" class="muted">Session —</p>
+        </section>
+        <section class="card" aria-labelledby="startup-heading">
+          <h2 id="startup-heading">Start-up time <span id="startup-total"></span></h2>
+          <div id="startup" data-testid="timings" hidden>
+            <ol id="startup-steps" class="muted"></ol>
+            <p id="startup-axis" class="muted"><span>0 s</span><span id="startup-end"></span></p>
+          </div>
+          <p class="empty muted">Shows after the agent starts talking</p>
         </section>
         <section class="card" aria-labelledby="events-heading">
           <h2 id="events-heading">Events</h2>

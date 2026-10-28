@@ -47,6 +47,15 @@ function expectCleanedUp(room: FakeRoom) {
   expect(room.listenerCount()).toBe(0);
 }
 
+async function expectMicReleased(room: FakeRoom) {
+  await flush();
+  expect(room.localParticipant.createTracks).toHaveBeenCalledTimes(1);
+  expect(room.localParticipant.publishTrack).not.toHaveBeenCalled();
+  expect(
+    room.localParticipant.microphoneTracks.map(track => track.mediaStreamTrack.readyState),
+  ).toEqual(['ended']);
+}
+
 function recordPublicOutput(call: WayloVoice): () => string {
   const events = record(call);
 
@@ -88,6 +97,42 @@ describe('WayloVoice', () => {
       expect(room.connect).not.toHaveBeenCalled();
       await started;
       expect(room.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens the mic while the session is fetched and publishes it once connected', async () => {
+      const answer = deferred<Response>();
+
+      sessionEndpoint.respond = () => answer.promise;
+      const started = createCall().start(START);
+      const room = lastRoom();
+
+      expect(room.localParticipant.createTracks).toHaveBeenCalledWith({ audio: true });
+      await flush();
+      expect(room.connect).not.toHaveBeenCalled();
+      expect(room.localParticipant.publishTrack).not.toHaveBeenCalled();
+      answer.resolve(sessionResponse());
+      await started;
+      expect(room.localParticipant.publishTrack).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails at once with the mic error while connecting and releases everything', async () => {
+      const connecting = deferred();
+      const prompt = deferred();
+
+      behavior.connect = () => connecting.promise;
+      behavior.microphone = () => prompt.promise;
+      const call = createCall();
+      const started = call.start(START);
+
+      await flush();
+      expect(lastRoom().state).toBe('connecting');
+      prompt.reject(domError('NotAllowedError'));
+      const error = await wayloVoiceErrorFrom(started);
+
+      expect(error.code).toBe('MICROPHONE_DENIED');
+      expect(inspectCall(call).phase).toBe('failed');
+      expectCleanedUp(lastRoom());
+      expect(lastRoom().localParticipant.publishTrack).not.toHaveBeenCalled();
     });
 
     it('registers room listeners before connecting', async () => {
@@ -198,8 +243,8 @@ describe('WayloVoice', () => {
       expect(code).toBe('CONNECTION_FAILED');
       expect(inspectCall(call).phase).toBe('failed');
       expect(room.connect).not.toHaveBeenCalled();
-      expect(room.localParticipant.createTracks).not.toHaveBeenCalled();
       expectCleanedUp(room);
+      await expectMicReleased(room);
     });
 
     it('starts when the session endpoint answers just under 15 s', async () => {
@@ -245,11 +290,8 @@ describe('WayloVoice', () => {
     });
 
     it('fails with MICROPHONE_UNAVAILABLE when LiveKit creates no mic track', async () => {
-      const call = createCall();
-      const started = call.start(START);
-
-      lastRoom().localParticipant.createTracks.mockResolvedValueOnce([]);
-      const error = await wayloVoiceErrorFrom(started);
+      behavior.microphone = () => Promise.resolve(false);
+      const error = await wayloVoiceErrorFrom(createCall().start(START));
 
       expect(error.code).toBe('MICROPHONE_UNAVAILABLE');
       expect(lastRoom().localParticipant.publishTrack).not.toHaveBeenCalled();
@@ -302,8 +344,8 @@ describe('WayloVoice', () => {
       const error = await wayloVoiceErrorFrom(call.start(START));
 
       expect(error.code).toBe('CONNECTION_FAILED');
-      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
       expectCleanedUp(lastRoom());
+      await expectMicReleased(lastRoom());
     });
 
     it('keeps SESSION_EXPIRED when the room reports Disconnected before connect rejects', async () => {
@@ -441,7 +483,7 @@ describe('WayloVoice', () => {
       [429, 'LIMIT_REACHED'],
       [500, 'CONNECTION_FAILED'],
     ])(
-      'fails with %i → %s without connecting, enabling the mic or retrying',
+      'fails with %i → %s without connecting, publishing the mic or retrying',
       async (status, code) => {
         serveSession({ error: 'nope' }, status);
         const call = createCall();
@@ -451,8 +493,8 @@ describe('WayloVoice', () => {
         expect(inspectCall(call).phase).toBe('failed');
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(lastRoom().connect).not.toHaveBeenCalled();
-        expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
         expectCleanedUp(lastRoom());
+        await expectMicReleased(lastRoom());
       },
     );
 
@@ -464,8 +506,8 @@ describe('WayloVoice', () => {
       expect(error.code).toBe('AUTH_REQUIRED');
       expect(inspectCall(call).phase).toBe('failed');
       expect(lastRoom().connect).not.toHaveBeenCalled();
-      expect(lastRoom().localParticipant.createTracks).not.toHaveBeenCalled();
       expectCleanedUp(lastRoom());
+      await expectMicReleased(lastRoom());
     });
 
     it('fails with CONNECTION_FAILED on a network error, without retrying', async () => {

@@ -16,7 +16,7 @@
         font:
           16px/1.5 system-ui,
           sans-serif;
-        max-width: 36rem;
+        max-width: 64rem;
         margin: 3rem auto;
         padding: 0 1rem;
       }
@@ -34,11 +34,106 @@
       .badge img {
         height: 28px;
       }
-      label {
-        margin-right: 1.5rem;
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+        align-items: start;
+        gap: 2.5rem;
+      }
+      .cards {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        align-items: start;
+        gap: 1.5rem;
+        margin-top: 2rem;
+      }
+      .cards h2 {
+        margin: 0 0 0.5rem;
+        color: #555;
+        font-size: 0.875rem;
+        font-weight: 600;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem 1.5rem;
+        margin: 1rem 0;
+      }
+      .controls label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
       }
       #volume {
         accent-color: var(--accent);
+      }
+      #mic-level {
+        display: flex;
+        gap: 2px;
+      }
+      #mic-level span {
+        width: 0.5rem;
+        height: 0.75rem;
+        border-radius: 1px;
+        background: #e4e4e7;
+      }
+      #mic-level .on {
+        background: #2e7d32;
+      }
+      .devices {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        align-items: center;
+        gap: 0.5rem 1rem;
+        margin: 1rem 0;
+      }
+      .devices,
+      .card {
+        padding: 0.75rem 1rem 1rem;
+        border: 1px solid #ddd;
+        border-radius: 0.5rem;
+      }
+      .devices legend {
+        padding: 0 0.25rem;
+        color: #555;
+        font-size: 0.875rem;
+      }
+      .device {
+        display: contents;
+      }
+      .picker {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+      }
+      .devices select {
+        flex: 1 1 12rem;
+        min-width: 0;
+        padding: 0.375rem 2.25rem 0.375rem 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 0.375rem;
+        background: #fff
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23555' stroke-width='1.5'/%3E%3C/svg%3E")
+          no-repeat right 0.75rem center / 0.75rem;
+        appearance: none;
+        color: inherit;
+        font: inherit;
+        font-size: 0.875rem;
+      }
+      .devices select:disabled {
+        background-color: #f4f4f5;
+        color: #757575;
+      }
+      .devices .note {
+        grid-column: 1 / -1;
+        margin: 0;
       }
       button {
         font: inherit;
@@ -48,6 +143,13 @@
         background: var(--accent);
         color: #fff;
         cursor: pointer;
+      }
+      button.link {
+        padding: 0;
+        background: none;
+        color: var(--accent);
+        font-size: 0.875rem;
+        text-decoration: underline;
       }
       button:disabled {
         opacity: 0.5;
@@ -76,7 +178,6 @@
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        margin-top: 1.5rem;
       }
       #status {
         font-weight: 600;
@@ -147,6 +248,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 0.375rem;
+        margin: 0 0 0.5rem;
         font-size: 0.8rem;
       }
       #state-pills span {
@@ -179,13 +281,19 @@
       }
 
       #transcript {
-        height: 18rem;
+        min-height: 12rem;
+        max-height: 24rem;
         overflow-y: auto;
         margin: 1rem 0;
         padding: 0.5rem;
         border: 1px solid #ddd;
         border-radius: 0.5rem;
         background: #fafafa;
+      }
+      #transcript:not(:has(p:not([hidden])))::before {
+        content: 'The conversation shows here.';
+        color: #888;
+        font-size: 0.875rem;
       }
       #transcript p {
         width: fit-content;
@@ -196,61 +304,149 @@
       }
       #transcript .user {
         background: color-mix(in srgb, var(--accent) 10%, #fff);
-        border: 1px solid var(--accent);
+        border: 1px solid color-mix(in srgb, var(--accent) 30%, #fff);
         margin-left: auto;
         text-align: right;
       }
       #transcript .agent {
         background: #eaeaea;
       }
+      #transcript .user::before,
+      #transcript .agent::before {
+        display: block;
+        color: #666;
+        font-size: 0.75rem;
+        font-style: normal;
+      }
+      #transcript .user::before {
+        content: 'You';
+      }
+      #transcript .agent::before {
+        content: 'Agent';
+      }
       #transcript .draft {
         color: #888;
         font-style: italic;
       }
+      @media (max-width: 760px) {
+        .layout {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 1.5rem;
+        }
+        .cards {
+          grid-auto-flow: row;
+        }
+      }
+      @media (max-width: 30rem) {
+        .devices {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 0.25rem;
+        }
+        .devices label:not(:first-of-type) {
+          margin-top: 0.5rem;
+        }
+      }
+      .card p {
+        margin: 0;
+      }
+      #events:empty {
+        padding: 0;
+        font-family: system-ui, sans-serif;
+      }
+      #events:empty::before {
+        content: 'No events yet';
+      }
       #events {
-        max-height: 12rem;
+        max-height: 16rem;
         overflow: auto;
+        margin: 0;
+        font:
+          0.75rem/1.5 ui-monospace,
+          monospace;
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>
-        <span class="badge"><img src="/brand/logo.svg" alt="Waylo" /></span> Waylo voice example
-      </h1>
-      <p>Click Talk, allow the microphone, and wait for the agent's greeting.</p>
-      <button id="call" type="button" data-mode="talk" data-testid="call-button" disabled>
-        Talk
-      </button>
-      <p>
-        <label><input id="mute" type="checkbox" /> Mute my mic</label>
-        <label
-          >Agent volume <input id="volume" type="range" min="0" max="1" step="0.1" value="1"
-        /></label>
-      </p>
-      <button id="resume-audio" type="button" hidden>Tap to hear the agent</button>
-      <div class="status-row">
-        <div id="viz" data-state="idle" aria-hidden="true">
-          <span></span><span></span><span></span><span></span><span></span>
-        </div>
-        <p id="status" role="status" data-state="idle" data-testid="agent-state"></p>
-        <span id="timer"></span>
+      <header>
+        <h1>
+          <span class="badge"><img src="/brand/logo.svg" alt="Waylo" /></span> Waylo voice example
+        </h1>
+        <p>Click Talk, allow the microphone, and wait for the agent's greeting.</p>
+      </header>
+      <div class="layout">
+        <section aria-label="Call">
+          <button id="call" type="button" data-mode="talk" data-testid="call-button" disabled>
+            Talk
+          </button>
+          <div class="controls">
+            <label><input id="mute" type="checkbox" /> Mute my mic</label>
+            <label
+              >Agent volume <input id="volume" type="range" min="0" max="1" step="0.1" value="1"
+            /></label>
+          </div>
+          <fieldset class="devices">
+            <legend>Audio devices</legend>
+            <label for="microphone">Microphone</label>
+            <div class="picker">
+              <select id="microphone" data-testid="microphone-select" disabled>
+                <option value="">Loading…</option>
+              </select>
+              <button id="device-names" class="link" type="button" hidden>
+                Show microphone names
+              </button>
+            </div>
+            <span>Mic level</span>
+            <div id="mic-level" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span> <span></span
+              ><span></span><span></span><span></span><span></span>
+            </div>
+            <div id="speaker-choice" class="device">
+              <label for="speaker">Speaker</label>
+              <select id="speaker" data-testid="speaker-select" disabled>
+                <option value="">Loading…</option>
+              </select>
+            </div>
+            <p id="speaker-note" class="note muted" hidden>
+              This browser can't choose the speaker.
+            </p>
+            <p id="device-hint" class="note muted" hidden>
+              Device names show once the microphone is allowed.
+            </p>
+          </fieldset>
+          <button id="resume-audio" type="button" hidden>Tap to hear the agent</button>
+        </section>
+        <section aria-label="Conversation">
+          <div class="status-row">
+            <div id="viz" data-state="idle" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <p id="status" role="status" data-state="idle" data-testid="agent-state"></p>
+            <span id="timer"></span>
+          </div>
+          <p id="error" role="alert" hidden></p>
+          <section id="transcript" aria-label="Transcript" data-testid="transcript">
+            <p id="thinking" class="agent" aria-label="Thinking" hidden>…</p>
+          </section>
+          <div id="end-summary" class="muted" data-testid="call-end" hidden></div>
+        </section>
       </div>
-      <p id="state-pills">
-        <span data-value="idle">connection: idle</span>
-        <span data-value="none">agent: none</span>
-        <span data-value="off">mic: off</span>
-        <span data-value="stopped">playback: stopped</span>
-      </p>
-      <p id="error" role="alert" hidden></p>
-      <div id="end-summary" class="muted" data-testid="call-end" hidden></div>
-      <section id="transcript" aria-label="Transcript" data-testid="transcript">
-        <p id="thinking" class="agent" aria-label="Thinking" hidden>…</p>
-      </section>
-      <details>
-        <summary>Events</summary>
-        <ol id="events" class="muted" reversed data-testid="event-log"></ol>
-      </details>
+      <div class="cards">
+        <section class="card" aria-labelledby="call-state-heading">
+          <h2 id="call-state-heading">Call state</h2>
+          <p id="state-pills">
+            <span data-value="idle">connection: idle</span>
+            <span data-value="none">agent: none</span>
+            <span data-value="off">mic: off</span>
+            <span data-value="stopped">playback: stopped</span>
+          </p>
+          <p id="session" class="muted">Session —</p>
+        </section>
+        <section class="card" aria-labelledby="events-heading">
+          <h2 id="events-heading">Events</h2>
+          <ol id="events" class="muted" reversed data-testid="event-log"></ol>
+        </section>
+      </div>
     </main>
     <script type="module" src="/app.js"></script>
   </body>

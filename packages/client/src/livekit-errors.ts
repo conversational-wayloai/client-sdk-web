@@ -54,6 +54,17 @@ export function disconnectCause(message: string, reason: DisconnectReason | unde
     : Object.assign(cause, { disconnectReason: DisconnectReason[reason] });
 }
 
+/** The device is gone: `{ exact }` on a missing id fails with OverconstrainedError. */
+export function isMissingDevice(error: unknown): boolean {
+  const name = errorName(error);
+
+  return (
+    name !== undefined &&
+    (UNAVAILABLE_MICROPHONE_ERRORS.has(name) ||
+      MediaDeviceFailure.getFailure(error) === MediaDeviceFailure.NotFound)
+  );
+}
+
 export function toConnectError(error: unknown, secrets: readonly string[]): WayloVoiceError {
   if (error instanceof WayloVoiceError) return error;
   if (!isConnectionError(error)) return new WayloVoiceError('CONNECTION_FAILED', error, secrets);

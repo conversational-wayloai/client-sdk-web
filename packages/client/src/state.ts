@@ -26,6 +26,19 @@ export type WayloVoiceMicrophone = 'muted' | 'off' | 'on';
 /** `playing` means the browser may play the agent's audio, not that it is audible. */
 export type WayloVoicePlayback = 'blocked' | 'playing' | 'stopped';
 
+/** A microphone or speaker. `label` is empty until the visitor allows the microphone. */
+export interface WayloVoiceDevice {
+  readonly deviceId: string;
+  readonly label: string;
+}
+
+export interface WayloVoiceDevices {
+  /** False where the browser can't route audio to a chosen speaker (Safari, every iOS browser); `speakers` is then empty. */
+  readonly canChooseSpeaker: boolean;
+  readonly microphones: readonly WayloVoiceDevice[];
+  readonly speakers: readonly WayloVoiceDevice[];
+}
+
 /** Events passed to `on()`. */
 export interface WayloVoiceEvents {
   /** A problem with no promise left to reject. */
@@ -34,6 +47,11 @@ export interface WayloVoiceEvents {
   state: WayloVoiceState;
   /** A transcript line, sent again as it grows. */
   transcript: WayloVoiceTranscript;
+}
+
+export interface WayloVoiceListDevicesOptions {
+  /** Ask for the microphone first so devices have names. Default false. */
+  readonly requestPermission?: boolean;
 }
 
 /** A snapshot of the call. */
@@ -46,10 +64,14 @@ export interface WayloVoiceState {
   readonly end?: WayloVoiceEnd;
   /** Whether the microphone is live, muted or off. */
   readonly microphone: WayloVoiceMicrophone;
+  /** The microphone chosen, or the one in use once the call has it; unset or `'default'` means the system default. */
+  readonly microphoneDeviceId?: string;
   /** Whether the browser may play the agent's audio. */
   readonly playback: WayloVoicePlayback;
   /** The Waylo session id, once known. */
   readonly sessionId?: string;
+  /** The speaker chosen, or the one in use once the call has it; unset or `'default'` means the system default. */
+  readonly speakerDeviceId?: string;
   /** Agent volume, 0 to 1. */
   readonly volume: number;
 }

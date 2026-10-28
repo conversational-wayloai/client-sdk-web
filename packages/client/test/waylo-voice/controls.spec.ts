@@ -1,8 +1,8 @@
-import { DisconnectReason } from 'livekit-client';
+import { createAudioAnalyser, DisconnectReason } from 'livekit-client';
 import { describe, expect, it, vi } from 'vitest';
 
 import { errorCodeFrom } from '../__setup__/errors.js';
-import type { FakeLocalTrack } from '../__setup__/fake-media.js';
+import { analysers, type FakeLocalTrack } from '../__setup__/fake-media.js';
 import { behavior, deferred, flush, lastRoom } from '../__setup__/fake-room.js';
 import { createCall, START } from '../__setup__/fake-session-endpoint.js';
 
@@ -286,5 +286,85 @@ describe('resumeAudio()', () => {
     await call.stop();
     await call.resumeAudio();
     expect(lastRoom().startAudio).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('getMicrophoneLevel()', () => {
+  it('is 0 before start() and while connecting, without opening an analyser', async () => {
+    behavior.agent = 'later';
+    const call = createCall();
+
+    expect(call.getMicrophoneLevel()).toBe(0);
+    const started = call.start(START);
+
+    expect(call.getMicrophoneLevel()).toBe(0);
+    await flush();
+    lastRoom().addAgent();
+    await started;
+    expect(analysers).toHaveLength(0);
+  });
+
+  it('reads the open microphone, reusing one analyser', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    expect(call.getMicrophoneLevel()).toBe(0.5);
+    const [analyser] = analysers;
+
+    if (!analyser) throw new Error('no analyser');
+    analyser.level = 0.2;
+    expect(call.getMicrophoneLevel()).toBe(0.2);
+    expect(analysers).toHaveLength(1);
+    expect(analysers[0]?.source).toBe(
+      lastRoom().localParticipant.microphone?.track.mediaStreamTrack,
+    );
+  });
+
+  it('is 0 while muted and reads again after unmute', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    await call.setMuted(true);
+    expect(call.getMicrophoneLevel()).toBe(0);
+    await call.setMuted(false);
+    expect(call.getMicrophoneLevel()).toBe(0.5);
+  });
+
+  it('measures the new source after the mic restarts and closes the old analyser', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    call.getMicrophoneLevel();
+    const track = lastRoom().localParticipant.microphone?.track;
+
+    if (!track) throw new Error('no microphone');
+    track.mediaStreamTrack = { readyState: 'live' };
+    call.getMicrophoneLevel();
+    expect(analysers).toHaveLength(2);
+    expect(analysers[0]?.cleanup).toHaveBeenCalledOnce();
+    expect(analysers[1]?.source).toBe(track.mediaStreamTrack);
+  });
+
+  it('is 0 when the browser cannot analyse audio, without retrying every read', async () => {
+    const call = createCall();
+
+    vi.mocked(createAudioAnalyser).mockImplementationOnce(() => {
+      throw new Error('Audio Context not supported on this browser');
+    });
+    await call.start(START);
+    expect(call.getMicrophoneLevel()).toBe(0);
+    expect(call.getMicrophoneLevel()).toBe(0);
+    expect(analysers).toHaveLength(0);
+  });
+
+  it('is 0 after the end and closes the analyser', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    call.getMicrophoneLevel();
+    await call.stop();
+    expect(call.getMicrophoneLevel()).toBe(0);
+    expect(analysers).toHaveLength(1);
+    expect(analysers[0]?.cleanup).toHaveBeenCalledOnce();
   });
 });

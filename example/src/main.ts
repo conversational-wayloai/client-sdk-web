@@ -1,9 +1,11 @@
 import {
   WayloVoice,
+  type WayloVoiceDevice,
   type WayloVoiceEnd,
   type WayloVoiceEndReason,
   WayloVoiceError,
   type WayloVoiceErrorCode,
+  type WayloVoiceListDevicesOptions,
   type WayloVoiceState,
   type WayloVoiceTranscript,
 } from '@waylovoice/client';
@@ -17,6 +19,7 @@ const HINTS: Partial<Record<WayloVoiceErrorCode, string>> = {
   MICROPHONE_DENIED: 'Allow microphone access in the browser and try again.',
   MICROPHONE_UNAVAILABLE: 'Connect a microphone, close other apps using it, and try again.',
   SESSION_EXPIRED: 'The session expired. Click Talk again.',
+  SPEAKER_UNAVAILABLE: 'Pick another speaker; the current one keeps playing.',
 };
 
 const END_SENTENCES: Partial<Record<WayloVoiceEndReason, string>> = {
@@ -49,13 +52,21 @@ function requireElement<T extends HTMLElement>(id: string): T {
 const callButton = requireElement<HTMLButtonElement>('call');
 const muteBox = requireElement<HTMLInputElement>('mute');
 const volumeSlider = requireElement<HTMLInputElement>('volume');
+const microphoneLevel = requireElement('mic-level');
 const resumeButton = requireElement<HTMLButtonElement>('resume-audio');
+const microphoneSelect = requireElement<HTMLSelectElement>('microphone');
+const speakerSelect = requireElement<HTMLSelectElement>('speaker');
+const deviceNamesButton = requireElement<HTMLButtonElement>('device-names');
+const speakerChoice = requireElement('speaker-choice');
+const speakerNote = requireElement('speaker-note');
+const deviceHint = requireElement('device-hint');
 const viz = requireElement('viz');
 const statusLabel = requireElement('status');
 const timerText = requireElement('timer');
 const statePills = requireElement('state-pills');
 const errorText = requireElement('error');
 const endSummary = requireElement('end-summary');
+const sessionText = requireElement('session');
 const transcriptList = requireElement('transcript');
 const thinking = requireElement('thinking');
 const eventLog = requireElement('events');
@@ -88,6 +99,25 @@ function describeError(error: unknown): string {
   if (!(error instanceof WayloVoiceError)) return String(error);
 
   return [error.message, HINTS[error.code], `(${error.code})`].filter(Boolean).join(' ');
+}
+
+function deviceOptions(
+  devices: readonly WayloVoiceDevice[],
+  fallback: string,
+): HTMLOptionElement[] {
+  if (devices.length === 0) return [new Option(fallback, '')];
+
+  return devices.map(
+    ({ deviceId, label }, index) => new Option(label || `Device ${index + 1}`, deviceId),
+  );
+}
+
+function drawMicrophoneLevel(): void {
+  const segments = [...microphoneLevel.children];
+  const lit = Math.round(Math.sqrt(current?.getMicrophoneLevel() ?? 0) * segments.length);
+
+  for (const [index, segment] of segments.entries()) segment.classList.toggle('on', index < lit);
+  requestAnimationFrame(drawMicrophoneLevel);
 }
 
 function followLatest(change: () => void): void {
@@ -125,20 +155,44 @@ function pillValues(state: WayloVoiceState): [string, string][] {
   ];
 }
 
+async function refreshDevices(options?: WayloVoiceListDevicesOptions): Promise<void> {
+  const { canChooseSpeaker, microphones, speakers } = await WayloVoice.listDevices(options);
+
+  const named = microphones.some(microphone => microphone.label !== '');
+
+  for (const [select, devices, fallback] of [
+    [microphoneSelect, microphones, 'Default microphone'],
+    [speakerSelect, speakers, 'Default speaker'],
+  ] as const) {
+    const chosen = select.value;
+
+    select.replaceChildren(...deviceOptions(devices, fallback));
+    select.disabled = devices.length === 0;
+    if (devices.some(device => device.deviceId === chosen)) select.value = chosen;
+  }
+
+  speakerChoice.hidden = !canChooseSpeaker;
+  speakerNote.hidden = canChooseSpeaker;
+  deviceNamesButton.hidden = named;
+  deviceHint.hidden = named;
+}
+
 function render(state: WayloVoiceState): void {
   const view = viewOf(state);
 
   statusLabel.textContent = LABELS[view];
   statusLabel.dataset.state = view;
   viz.dataset.state = view;
+  sessionText.textContent = `Session ${state.sessionId ?? '—'}`;
   renderPills(state);
   renderCallButton(state);
   renderTimer(state);
   resumeButton.hidden = state.playback !== 'blocked';
+  renderDevices(state);
   followLatest(() => {
     thinking.hidden = view !== 'thinking';
   });
-  if (state.end) showEnd(state, state.end);
+  if (state.end) showEnd(state.end);
 }
 
 function renderCallButton(state: WayloVoiceState): void {
@@ -148,6 +202,17 @@ function renderCallButton(state: WayloVoiceState): void {
   callButton.dataset.mode = live && !connecting ? 'hang-up' : 'talk';
   callButton.textContent = connecting ? 'Connecting…' : live ? 'Hang up' : 'Talk';
   callButton.disabled = connecting;
+}
+
+function renderDevices(state: WayloVoiceState): void {
+  for (const [select, deviceId] of [
+    [microphoneSelect, state.microphoneDeviceId],
+    [speakerSelect, state.speakerDeviceId],
+  ] as const) {
+    if (deviceId && [...select.options].some(option => option.value === deviceId)) {
+      select.value = deviceId;
+    }
+  }
 }
 
 function renderPills(state: WayloVoiceState): void {
@@ -184,12 +249,13 @@ function resetCallView(): void {
   showError('');
 }
 
-function showEnd(state: WayloVoiceState, end: WayloVoiceEnd): void {
-  const lines = [
-    describeEnd(end),
-    `Call length ${timerText.textContent || '00:00'}`,
-    `Session ${state.sessionId ?? 'none'}`,
-  ];
+function showDeviceError(error: unknown): void {
+  showError(describeError(error));
+  if (current) renderDevices(current.getState());
+}
+
+function showEnd(end: WayloVoiceEnd): void {
+  const lines = [describeEnd(end), `Call length ${timerText.textContent || '00:00'}`];
 
   endSummary.role = end.status === 'failed' ? 'alert' : null;
   endSummary.replaceChildren(
@@ -220,12 +286,26 @@ function startCall(id: string): WayloVoice {
     const changes = describeChanges(previous, state);
 
     if (changes) log(call, changes);
+
+    if (state.microphone !== 'off' && previous.microphone === 'off') {
+      refreshDevices().catch(() => undefined);
+    }
+
     previous = state;
   });
   wayloVoice.on('transcript', upsertRow);
   wayloVoice.on('error', error => log(call, `error: ${error.code}`));
   wayloVoice.setVolume(volumeSlider.valueAsNumber);
   wayloVoice.setMuted(muteBox.checked).catch(() => undefined);
+
+  if (microphoneSelect.value) {
+    wayloVoice.setMicrophoneDevice(microphoneSelect.value).catch(showDeviceError);
+  }
+
+  if (speakerSelect.value && !speakerChoice.hidden) {
+    wayloVoice.setSpeakerDevice(speakerSelect.value).catch(showDeviceError);
+  }
+
   // The failure also arrives as the final `state` with `end`.
   wayloVoice.start({ agentId: id }).catch(() => undefined);
 
@@ -296,6 +376,25 @@ volumeSlider.addEventListener('input', () => {
   current?.setVolume(volumeSlider.valueAsNumber);
 });
 
+microphoneSelect.addEventListener('change', () => {
+  showError('');
+  current?.setMicrophoneDevice(microphoneSelect.value).catch(showDeviceError);
+});
+
+speakerSelect.addEventListener('change', () => {
+  showError('');
+  current?.setSpeakerDevice(speakerSelect.value).catch(showDeviceError);
+});
+
+deviceNamesButton.addEventListener('click', () => {
+  showError('');
+  refreshDevices({ requestPermission: true }).catch(showDeviceError);
+});
+
+navigator.mediaDevices?.addEventListener('devicechange', () => {
+  refreshDevices().catch(() => undefined);
+});
+
 resumeButton.addEventListener('click', () => {
   current?.resumeAudio().catch(() => undefined);
 });
@@ -312,5 +411,8 @@ async function loadAgentId(): Promise<string | undefined> {
 }
 
 const agentIdLoading = loadAgentId();
+
+refreshDevices().catch(() => undefined);
+requestAnimationFrame(drawMicrophoneLevel);
 
 callButton.disabled = false;

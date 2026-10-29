@@ -7,8 +7,8 @@ on:
 
 jobs:
   check:
-    # Same runner switch as the application repo: the CI_RUNNER org variable picks the self-hosted
-    # label, and leaving it unset falls back to hosted runners.
+    # Same runner switch as the application repo: the CI_RUNNER repo variable picks the on-demand pool
+    # label (waylo-ci-ondemand), and leaving it unset falls back to hosted runners.
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
 
     steps:

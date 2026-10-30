@@ -108,7 +108,7 @@ Errors from the SDK (`WayloVoiceError.code`):
 | `CONNECTION_FAILED` | The session endpoint failed, could not be reached or did not answer within 15 s, or the call dropped. Check the server terminal and your network. |
 | `MICROPHONE_DENIED` | Allow microphone access in the browser and try again. |
 | `MICROPHONE_IN_USE` | Close other apps or tabs using the microphone, and try again. |
-| `MICROPHONE_UNAVAILABLE` | Connect a microphone and try again. Mid-call, pick another microphone. The error's `cause` says what the browser reported. |
+| `MICROPHONE_UNAVAILABLE` | Connect a microphone and try again. Mid-call, this means no microphone, not even the system default, could be opened. The error's `cause` says what the browser reported. |
 | `SPEAKER_UNAVAILABLE` | The chosen speaker is gone or this browser can't choose one; the current speaker keeps playing the agent. |
 | `AGENT_TIMEOUT` | The agent didn't get ready in time. Try again. |
 | `AGENT_LEFT` | The agent left the call without ending it. Click **Talk** to start a new one. |

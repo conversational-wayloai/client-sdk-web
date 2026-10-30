@@ -484,7 +484,7 @@ describe('setMuted()', () => {
     expect(localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
   });
 
-  it('reports a lost mic as off with MICROPHONE_UNAVAILABLE, keeping the call', async () => {
+  it('reports a lost mic that no mic can replace as off with MICROPHONE_UNAVAILABLE, keeping the call', async () => {
     const call = createCall();
     const errors: string[] = [];
 
@@ -493,10 +493,11 @@ describe('setMuted()', () => {
     const track = lastRoom().localParticipant.microphone?.track;
 
     if (!track) throw new Error('no mic');
+    behavior.switchDevice = () => Promise.reject(new DOMException('gone', 'NotFoundError'));
     track.mediaStreamTrack.readyState = 'ended';
     track.emit('ended');
+    await vi.waitFor(() => expect(errors).toEqual(['MICROPHONE_UNAVAILABLE']));
     expect(call.getState()).toMatchObject({ connection: 'connected', microphone: 'off' });
-    expect(errors).toEqual(['MICROPHONE_UNAVAILABLE']);
 
     track.mediaStreamTrack.readyState = 'live';
     track.emit('restarted');

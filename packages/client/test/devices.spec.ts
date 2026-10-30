@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { hasSpeaker, listDevices, requireDeviceId } from '../src/devices.js';
+import {
+  hasSpeaker,
+  isDefaultUnlisted,
+  isDeviceGone,
+  listDevices,
+  requireDeviceId,
+} from '../src/devices.js';
 
 import { wayloVoiceErrorFrom } from './__setup__/errors.js';
 import { createMediaStream, mediaDevice, stubMediaDevices } from './__setup__/fake-media.js';
@@ -120,6 +126,29 @@ describe('listDevices({ requestPermission })', () => {
     const error = await wayloVoiceErrorFrom(listDevices({ requestPermission: true }));
 
     expect(error.code).toBe('MICROPHONE_UNAVAILABLE');
+  });
+});
+
+describe('isDefaultUnlisted()', () => {
+  it("is true only when devices of the kind are listed without a 'default' entry", () => {
+    const firefox = [mediaDevice('audioinput', 'mic'), mediaDevice('audiooutput', 'speaker')];
+    const chrome = [mediaDevice('audioinput', 'default'), mediaDevice('audioinput', 'mic')];
+
+    expect(isDefaultUnlisted(firefox, 'audioinput')).toBe(true);
+    expect(isDefaultUnlisted(chrome, 'audioinput')).toBe(false);
+    expect(isDefaultUnlisted([], 'audioinput')).toBe(false);
+  });
+});
+
+describe('isDeviceGone()', () => {
+  it('is true only for a chosen device missing from a non-empty list', () => {
+    const devices = [mediaDevice('audioinput', 'mic')];
+
+    expect(isDeviceGone(devices, 'audioinput', 'gone')).toBe(true);
+    expect(isDeviceGone(devices, 'audioinput', 'mic')).toBe(false);
+    expect(isDeviceGone(devices, 'audioinput', 'default')).toBe(false);
+    expect(isDeviceGone(devices, 'audioinput', undefined)).toBe(false);
+    expect(isDeviceGone([], 'audioinput', 'gone')).toBe(false);
   });
 });
 

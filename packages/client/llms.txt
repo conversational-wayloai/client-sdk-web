@@ -25,7 +25,7 @@ One route on the site's backend. It checks the site's own login, then calls the 
 
 - The SDK sends `POST {sessionEndpoint}` with JSON `{ "agentId": string, "metadata"?: object }` and the site's cookies.
 - Answer `200` with the body of `POST {WAYLO_API_URL}/sessions/web` and `Cache-Control: no-store`; `401` when not logged in; `403` when the visitor may not use the agent; `429` when rate limited. Never redirect.
-- The Waylo request: `POST {WAYLO_API_URL}/sessions/web`, headers `Authorization: Bearer {WAYLO_API_KEY}` and `Content-Type: application/json`, body `{ "workspaceId", "agentId", "metadata"? }`. The key needs the `sessions:create` scope.
+- The Waylo request: `POST {WAYLO_API_URL}/sessions/web`, headers `Authorization: Bearer {WAYLO_API_KEY}` and `Content-Type: application/json`, body `{ "workspaceId", "agentId", "metadata"? }`. The key needs the `sessions:write` scope.
 
 ```js
 // Node 18+ with Express 4. Reads WAYLO_API_URL, WAYLO_API_KEY, WORKSPACE_ID, AGENT_ID and PORT from the environment.

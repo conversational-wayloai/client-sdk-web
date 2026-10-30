@@ -28,15 +28,15 @@ await wayloVoice.stop();
 1. Copy the env file: `cp example/.env.example example/.env` (then `chmod 600 example/.env`).
 2. Fill in the values:
 
-| Variable        | What it is                                                             |
-| --------------- | ---------------------------------------------------------------------- |
-| `WAYLO_API_URL` | The Waylo API base URL.                                                |
-| `WAYLO_API_KEY` | An API key with the `sessions:create` scope, pinned to your workspace. |
-| `WORKSPACE_ID`  | The workspace that owns the agent.                                     |
-| `AGENT_ID`      | The agent to talk to.                                                  |
-| `HOST`, `PORT`  | Where the example server listens. Defaults: `127.0.0.1`, `5190`.       |
+| Variable        | What it is                                                            |
+| --------------- | --------------------------------------------------------------------- |
+| `WAYLO_API_URL` | The Waylo API base URL.                                               |
+| `WAYLO_API_KEY` | An API key with the `sessions:write` scope, pinned to your workspace. |
+| `WORKSPACE_ID`  | The workspace that owns the agent.                                    |
+| `AGENT_ID`      | The agent to talk to.                                                 |
+| `HOST`, `PORT`  | Where the example server listens. Defaults: `127.0.0.1`, `5190`.      |
 
-**Getting an API key.** There is no dashboard page for API keys yet. An organization owner or admin creates one through the API reference at `/docs` on your Waylo API URL: call `POST /api-keys` with the `sessions:create` scope and your workspace. Copy the key when it is shown; it is not shown again. The same owner or admin can give you the workspace and agent IDs.
+**Getting an API key.** An organization owner or admin creates one in the dashboard: go to **Integrations → API keys** and click **+ API key**. Under **Access** choose **Scoped** and set **Sessions** to **Write**, and pick your workspace. Copy the key when it is shown; it is not shown again. The same owner or admin can give you the workspace and agent IDs.
 
 ## Run
 
@@ -89,11 +89,11 @@ Errors from the session endpoint (`POST /api/waylo/session`):
 
 Waylo API errors the terminal can show:
 
-| Status | Likely cause                                                           |
-| ------ | ---------------------------------------------------------------------- |
-| 401    | `WAYLO_API_KEY` is wrong or revoked.                                   |
-| 403    | The key lacks `sessions:create` or is pinned to a different workspace. |
-| 404    | `WORKSPACE_ID` or `AGENT_ID` is wrong.                                 |
+| Status | Likely cause                                                          |
+| ------ | --------------------------------------------------------------------- |
+| 401    | `WAYLO_API_KEY` is wrong or revoked.                                  |
+| 403    | The key lacks `sessions:write` or is pinned to a different workspace. |
+| 404    | `WORKSPACE_ID` or `AGENT_ID` is wrong.                                |
 
 Errors from the SDK (`WayloVoiceError.code`):
 

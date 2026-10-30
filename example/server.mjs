@@ -7,6 +7,18 @@ const PORT = Number(process.env.PORT ?? 5190);
 const HOST = process.env.HOST ?? '127.0.0.1';
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
+// Developer hints for a wrong setup. Fixed text only: never the key, the token or the upstream body.
+const SETUP_HINTS = {
+  401: 'Wrong or revoked API key. Check WAYLO_API_KEY in example/.env.',
+  403: 'The API key lacks sessions:write.',
+  404: 'Wrong agent or workspace id, the agent is inactive, or the key belongs to another workspace.',
+};
+const DEFAULT_SETUP_HINT = 'Check the server terminal.';
+
+// The SDK does not pass a failed session body to the page, so the page reads it here instead.
+// One value for every visitor: this example serves a single developer.
+let lastSetupError;
+
 const FILES = {
   '/': ['public/index.html', 'text/html; charset=utf-8'],
   '/app.js': ['dist/app.js', 'text/javascript; charset=utf-8'],
@@ -86,6 +98,11 @@ function sendJson(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
+function sendSetupError(response, status, body) {
+  lastSetupError = { ...body, hint: SETUP_HINTS[body.upstreamStatus] ?? DEFAULT_SETUP_HINT };
+  sendJson(response, status, lastSetupError);
+}
+
 async function serveFile(response, [path, type]) {
   const body = await readFile(new URL(path, import.meta.url)).catch(() => undefined);
 
@@ -129,18 +146,27 @@ async function session(request, response) {
   const upstream = await createWebSession(body.agentId, body.metadata);
 
   if (upstream.error) {
-    sendJson(response, upstream.error === 'api_timeout' ? 504 : 502, { error: upstream.error });
+    sendSetupError(response, upstream.error === 'api_timeout' ? 504 : 502, {
+      error: upstream.error,
+    });
+
+    return;
+  }
+
+  if (upstream.status === 429) {
+    sendJson(response, 429, { error: 'api_error' });
 
     return;
   }
 
   // A Waylo 401 or 403 is about this server's key, not the visitor's login; never pass it on as is.
   if (upstream.status < 200 || upstream.status > 299) {
-    sendJson(response, upstream.status === 429 ? 429 : 502, { error: 'api_error' });
+    sendSetupError(response, 502, { error: 'api_error', upstreamStatus: upstream.status });
 
     return;
   }
 
+  lastSetupError = undefined;
   response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   response.end(upstream.body);
 }
@@ -157,6 +183,11 @@ const handle = async (request, response) => {
     }
     case 'GET /api/example/agent': {
       sendJson(response, 200, { agentId: AGENT_ID });
+
+      break;
+    }
+    case 'GET /api/example/setup-error': {
+      sendJson(response, 200, lastSetupError ?? {});
 
       break;
     }

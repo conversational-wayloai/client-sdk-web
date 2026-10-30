@@ -183,10 +183,10 @@ Lifecycle: a new instance's state is `connection: 'idle'` with no `end`. `start(
 | Field | Values |
 | --- | --- |
 | `stage` | `'idle'`, `'connecting'`, `'joining'`, `'preparing'`, `'speaking'`, `'listening'`, `'thinking'`, `'reconnecting'`, `'ended'`: which moment of the call it is. Use it for the status line (see Status line). |
-| `connection` | `'idle'`, `'connecting'`, `'connected'`, `'reconnecting'`, `'disconnected'` |
+| `connection` | `'idle'`, `'connecting'`, `'connected'`, `'reconnecting'`, `'disconnected'`. `'reconnecting'` starts at once when the browser goes offline, after 8 s with no data, or within 2 s of LiveKit starting to reconnect, and lasts at least 1 s. After 45 s of it the call fails with `CONNECTION_LOST`. |
 | `agent` | `'none'`, `'joining'`, `'listening'`, `'thinking'`, `'speaking'` |
 | `microphone` | `'off'`, `'on'`, `'muted'` |
-| `network` | `'good'`, `'poor'`, `'lost'`: this browser's connection to the call; `'good'` outside a call. Show a non-blocking banner while it is not `'good'`. |
+| `network` | `'good'`, `'poor'`, `'lost'`: this browser's connection to the call; `'good'` outside a call. LiveKit's own `'poor'` or `'lost'` counts once it lasts 2 s. Also `'poor'` while `connection` is `'reconnecting'`, or after 3 s with no data arriving or 2 s with the browser's network path (ICE) `disconnected`, until data flows again for 1 s. Show a non-blocking banner while it is not `'good'`. |
 | `playback` | `'stopped'`, `'playing'`, `'blocked'` (show a button that calls `resumeAudio()`) |
 | `volume` | Last `setVolume()` value, default 1 |
 | `sessionId` | The Waylo session id, once known |
@@ -262,7 +262,7 @@ wayloVoice?.on('state', state => {
 | `INVALID_SESSION` | The session endpoint's 200 body is not a Waylo session; return it unchanged. | "Something went wrong. Please try again later." | No, fix the endpoint |
 | `SESSION_EXPIRED` | The session expired or was rejected. | "Please try again." | Yes, new call |
 | `CONNECTION_FAILED` | The endpoint failed or took over 15 s, the call could not connect, or the call server ended it with an error. | "Couldn't connect. Check your internet and try again." | Yes |
-| `CONNECTION_LOST` | The visitor's connection dropped mid-call and could not be restored. | "Your connection dropped. Check your internet and start a new call." | Yes, new call |
+| `CONNECTION_LOST` | The visitor's connection dropped mid-call and the call could not continue: reconnecting failed, took over 45 s, or found no agent within 5 s of reconnecting. | "Your connection dropped. Check your internet and start a new call." | Yes, new call |
 | `MICROPHONE_DENIED` | The visitor or the browser blocked the microphone. | "Allow the microphone in your browser, then try again." | After allowing it |
 | `MICROPHONE_IN_USE` | Another app or tab holds the microphone, or the system could not start it. | "Your microphone is busy. Close other apps using it, then try again." | Yes |
 | `MICROPHONE_UNAVAILABLE` | No usable microphone, the chosen one can't be opened, or the browser refused it for another reason. The original error is in `cause`. | "No working microphone found. Connect one, then try again." | Yes, after fixing it |

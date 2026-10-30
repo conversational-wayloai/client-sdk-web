@@ -56,7 +56,7 @@ While editing `src/main.ts`, run `pnpm dev:example` in a second terminal to rebu
 
 1. Click **Talk**. The status shows **Calling the agent…**, then **The agent is joining…** and **The agent is getting ready…**.
 2. The browser asks for the microphone. Allow it.
-3. The agent greets you: the status shows **The agent is speaking**, then **Go ahead, I'm listening** and **Thinking…** as you talk. On a weak connection a grey line under it says so. Both sides appear as captions; grey lines are still changing.
+3. The agent greets you: the status shows **The agent is speaking**, then **Go ahead, I'm listening** and **Thinking…** as you talk. On a weak connection, or after 3 s with no data, a grey line under it says so; with Wi-Fi off the status shows **Reconnecting…** at once. Both sides appear as captions; grey lines are still changing.
 4. **Mic level**, under **Microphone**, lights up as you speak and stays flat while muted. **Mute my mic**, **Agent volume**, **Microphone** and **Speaker** apply at once; the device lists fill in once the microphone is allowed, or before a call with **Show microphone names**. Browsers that can't choose the speaker show a note instead. **Tap to hear the agent** shows only when the browser blocks sound.
 5. Once the agent is heard, **Start-up time** at the bottom shows how long that took after **Talk**, with each step as a bar on one timeline; steps can overlap.
 6. Click **Hang up** (or say goodbye and let the agent end the call). A summary shows how the call ended, its length and the session id, and the microphone indicator turns off.
@@ -106,7 +106,7 @@ Errors from the SDK (`WayloVoiceError.code`):
 | `INVALID_SESSION` | Check that `/api/waylo/session` returns the Waylo API response unchanged. |
 | `SESSION_EXPIRED` | The session expired. Click **Talk** again. |
 | `CONNECTION_FAILED` | The session endpoint failed, could not be reached or did not answer within 15 s, the call could not connect, or the call server ended it with an error. Check the server terminal and your network. |
-| `CONNECTION_LOST` | Your connection dropped mid-call and could not be restored. Check your network and click **Talk** again. |
+| `CONNECTION_LOST` | Your connection dropped mid-call and the call could not continue: reconnecting failed, took over 45 s, or found no agent within 5 s of reconnecting. Check your network and click **Talk** again. |
 | `MICROPHONE_DENIED` | Allow microphone access in the browser and try again. |
 | `MICROPHONE_IN_USE` | Close other apps or tabs using the microphone, and try again. |
 | `MICROPHONE_UNAVAILABLE` | Connect a microphone and try again. Mid-call, this means no microphone, not even the system default, could be opened. The error's `cause` says what the browser reported. |

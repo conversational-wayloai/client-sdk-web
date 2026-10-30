@@ -13,6 +13,41 @@ export interface FakeAnalyser {
 
 export const analysers: FakeAnalyser[] = [];
 
+/** What `getStats()` reports: received bytes grow on every read while `isFlowing`. */
+export const fakeNetwork = {
+  iceState: 'connected' as RTCIceTransportState,
+  isFlowing: true,
+  received: new Map<string, number>(),
+};
+
+function statsReport(transportId: string) {
+  return vi.fn(async () => {
+    const bytesReceived =
+      (fakeNetwork.received.get(transportId) ?? 0) + (fakeNetwork.isFlowing ? 100 : 0);
+    const timestamp = Date.now();
+
+    fakeNetwork.received.set(transportId, bytesReceived);
+
+    return new Map<string, Record<string, unknown>>([
+      [
+        `${transportId}-pair`,
+        { id: `${transportId}-pair`, type: 'candidate-pair', bytesReceived, timestamp },
+      ],
+      [
+        transportId,
+        {
+          id: transportId,
+          type: 'transport',
+          bytesReceived,
+          iceState: fakeNetwork.iceState,
+          selectedCandidatePairId: `${transportId}-pair`,
+          timestamp,
+        },
+      ],
+    ]) as unknown as RTCStatsReport;
+  });
+}
+
 export function createAnalyser(track: { mediaStreamTrack: object }): FakeAnalyser {
   const analyser: FakeAnalyser = {
     level: 0.5,
@@ -44,6 +79,7 @@ export function createAudioTrack() {
 
       return element;
     }),
+    getRTCStatsReport: statsReport('subscriber'),
   };
 }
 
@@ -96,6 +132,7 @@ export function createLocalTrack() {
     isMuted: false,
     mediaStreamTrack,
     getDeviceId: vi.fn(async () => track.deviceId),
+    getRTCStatsReport: statsReport('publisher'),
     emit(event: string) {
       for (const listener of listeners.get(event) ?? []) listener();
     },
@@ -160,6 +197,12 @@ export function mediaDevice(
   groupId = 'group',
 ): MediaDeviceInfo {
   return { deviceId, groupId, kind, label, toJSON: () => ({}) };
+}
+
+export function resetFakeNetwork(): void {
+  fakeNetwork.iceState = 'connected';
+  fakeNetwork.isFlowing = true;
+  fakeNetwork.received.clear();
 }
 
 export function stubMediaDevices(

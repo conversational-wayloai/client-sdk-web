@@ -2,7 +2,14 @@ import { ConnectionQuality } from 'livekit-client';
 import { describe, expect, it } from 'vitest';
 
 import type { WayloVoiceState } from '../src/index.js';
-import { INITIAL_STATE, mergeState, toAgentState, toNetwork, toStage } from '../src/state.js';
+import {
+  INITIAL_STATE,
+  mergeState,
+  toAgentState,
+  toNetwork,
+  toStage,
+  worseNetwork,
+} from '../src/state.js';
 
 describe('toAgentState', () => {
   it.each([
@@ -17,6 +24,18 @@ describe('toAgentState', () => {
     const attributes = value === undefined ? {} : { 'lk.agent.state': value };
 
     expect(toAgentState(attributes)).toBe(expected);
+  });
+});
+
+describe('worseNetwork', () => {
+  it.each([
+    ['good', 'good', 'good'],
+    ['good', 'poor', 'poor'],
+    ['poor', 'good', 'poor'],
+    ['poor', 'lost', 'lost'],
+    ['lost', 'poor', 'lost'],
+  ] as const)('picks the worse of %s and %s', (a, b, expected) => {
+    expect(worseNetwork(a, b)).toBe(expected);
   });
 });
 

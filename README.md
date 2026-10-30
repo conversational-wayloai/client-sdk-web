@@ -67,7 +67,7 @@ wayloVoice.getMicrophoneLevel(); // 0 to 1, for a mic meter; poll it with reques
 | `timings` | how long each step of the call took (see below), from `start()` on |
 | `end` | set once when the call is over: `{ status: 'completed', reason? }` or `{ status: 'failed', reason?, error }`; `reason` uses the API's session end reasons |
 
-`network` is how well this browser's connection to the call is doing: `good`, `poor` or `lost`. When it's `poor` or `lost`, show a non-blocking banner such as "Your connection is weak"; the call goes on, and `connection` says if it's reconnecting.
+`network` is how well this browser's connection to the call is doing: `good`, `poor` or `lost`. When it's `poor` or `lost`, show a non-blocking banner such as "Your connection is weak"; the call goes on, and `connection` says if it's reconnecting. `network` follows LiveKit's quality score once a dip lasts 2 s, and turns `poor` after 3 s with no data arriving, after 2 s with the browser's network path down, or while `connection` is `reconnecting`. `connection` turns `reconnecting` at once when the browser goes offline, after 8 s with no data, or within 2 s of LiveKit starting to reconnect, and turns back once LiveKit reconnects or data flows again, after at least 1 s. After 45 s of `reconnecting` the call ends with `CONNECTION_LOST`.
 
 `getState()` returns the same snapshot. `on()` returns an unsubscribe function; `off()` works too. After the final `state` (the one with `end`) nothing more is emitted, whoever ended the call. `end` is what this browser saw; the stored session (`GET /sessions/:id`) is the record.
 
@@ -202,7 +202,7 @@ The session body has this shape (the SDK checks it; your page never sees it):
 | `INVALID_SESSION` | The session endpoint's 200 body is not a Waylo session; return it unchanged. | "Something went wrong. Please try again later." | No, fix the endpoint |
 | `SESSION_EXPIRED` | The session expired or was rejected. | "Please try again." | Yes, new call |
 | `CONNECTION_FAILED` | The endpoint failed or took over 15 s, the call could not connect, or the call server ended it with an error. | "Couldn't connect. Check your internet and try again." | Yes |
-| `CONNECTION_LOST` | The visitor's connection dropped mid-call and could not be restored. | "Your connection dropped. Check your internet and start a new call." | Yes, new call |
+| `CONNECTION_LOST` | The visitor's connection dropped mid-call and the call could not continue: reconnecting failed, took over 45 s, or found no agent within 5 s of reconnecting. | "Your connection dropped. Check your internet and start a new call." | Yes, new call |
 | `MICROPHONE_DENIED` | The visitor or the browser blocked the microphone. | "Allow the microphone in your browser, then try again." | After allowing it |
 | `MICROPHONE_IN_USE` | Another app or tab holds the microphone, or the system could not start it. | "Your microphone is busy. Close other apps using it, then try again." | Yes |
 | `MICROPHONE_UNAVAILABLE` | No usable microphone, the chosen one can't be opened, or the browser refused it for another reason. The original error is in `cause`. | "No working microphone found. Connect one, then try again." | Yes, after fixing it |

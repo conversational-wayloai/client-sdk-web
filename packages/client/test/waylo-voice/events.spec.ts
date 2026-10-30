@@ -1,7 +1,9 @@
 import { DisconnectReason } from 'livekit-client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { MIN_SHOWN_MS } from '../../src/connection-monitor.js';
 import type { WayloVoiceState } from '../../src/index.js';
+import { POOR_QUALITY_AFTER_MS } from '../../src/waylo-voice.js';
 import { activeCall, record } from '../__setup__/active-call.js';
 import { everyErrorSurface, wayloVoiceErrorFrom } from '../__setup__/errors.js';
 import { behavior, flush, lastRoom } from '../__setup__/fake-room.js';
@@ -66,16 +68,20 @@ describe('WayloVoice state', () => {
   it('shows reconnecting, then connected again', async () => {
     const { call, room } = await activeCall();
 
+    vi.useFakeTimers();
     room.emit('reconnecting');
     expect(call.getState().connection).toBe('reconnecting');
+    await vi.advanceTimersByTimeAsync(MIN_SHOWN_MS);
     room.emit('reconnected');
     expect(call.getState().connection).toBe('connected');
   });
 
   it('follows the network quality of this browser only, ignoring unknown', async () => {
+    vi.useFakeTimers();
     const { call, room, states } = await activeCall();
 
     room.emit('connectionQualityChanged', 'poor', room.localParticipant);
+    await vi.advanceTimersByTimeAsync(POOR_QUALITY_AFTER_MS);
     expect(call.getState().network).toBe('poor');
     room.emit('connectionQualityChanged', 'unknown', room.localParticipant);
     room.emit('connectionQualityChanged', 'excellent', room.remoteParticipants.get('agent'));
@@ -88,9 +94,12 @@ describe('WayloVoice state', () => {
   });
 
   it('shows the network as good again once the call ends', async () => {
+    vi.useFakeTimers();
     const { call, room } = await activeCall();
 
     room.emit('connectionQualityChanged', 'lost', room.localParticipant);
+    await vi.advanceTimersByTimeAsync(POOR_QUALITY_AFTER_MS);
+    expect(call.getState().network).toBe('lost');
     await call.stop();
     expect(call.getState()).toMatchObject({ connection: 'disconnected', network: 'good' });
   });
@@ -150,8 +159,10 @@ describe('WayloVoice stage', () => {
   it('shows reconnecting, then the agent turn again', async () => {
     const { room, states } = await activeCall();
 
+    vi.useFakeTimers();
     room.setAttributes('agent', { 'lk.agent.state': 'speaking' });
     room.emit('reconnecting');
+    await vi.advanceTimersByTimeAsync(MIN_SHOWN_MS);
     room.emit('reconnected');
 
     expect(stagesOf(states).slice(-3)).toEqual(['speaking', 'reconnecting', 'speaking']);
@@ -160,7 +171,9 @@ describe('WayloVoice stage', () => {
   it('stays preparing across a reconnect before the agent first speaks', async () => {
     const { call, room } = await activeCall();
 
+    vi.useFakeTimers();
     room.emit('reconnecting');
+    await vi.advanceTimersByTimeAsync(MIN_SHOWN_MS);
     room.emit('reconnected');
 
     expect(call.getState().stage).toBe('preparing');
@@ -171,9 +184,10 @@ describe('WayloVoice stage', () => {
 
     room.setAttributes('agent', { 'lk.agent.state': 'speaking' });
     room.removeParticipant('agent');
+    vi.useFakeTimers();
     room.state = 'reconnecting';
     room.emit('reconnecting');
-    await flush();
+    await vi.advanceTimersByTimeAsync(MIN_SHOWN_MS);
     room.state = 'connected';
     room.emit('reconnected');
     expect(call.getState().stage).toBe('reconnecting');

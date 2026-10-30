@@ -179,7 +179,8 @@ describe('WayloVoice', () => {
 
       await call.start(START);
       expect(inspectCall(call).phase).toBe('active');
-      expect(vi.getTimerCount()).toBe(0);
+      // Only the connection stats poll.
+      expect(vi.getTimerCount()).toBe(1);
     });
 
     it('waits for an agent that joins later, ignoring non-agents', async () => {
@@ -260,7 +261,8 @@ describe('WayloVoice', () => {
       await started;
 
       expect(inspectCall(call).phase).toBe('active');
-      expect(vi.getTimerCount()).toBe(0);
+      // Only the connection stats poll.
+      expect(vi.getTimerCount()).toBe(1);
     });
 
     it.each([

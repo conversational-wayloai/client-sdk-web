@@ -1,6 +1,7 @@
 import { createAudioAnalyser, DisconnectReason } from 'livekit-client';
 import { describe, expect, it, vi } from 'vitest';
 
+import { MIN_SHOWN_MS } from '../../src/connection-monitor.js';
 import { errorCodeFrom } from '../__setup__/errors.js';
 import { analysers, type FakeLocalTrack } from '../__setup__/fake-media.js';
 import { behavior, deferred, flush, lastRoom } from '../__setup__/fake-room.js';
@@ -41,14 +42,16 @@ describe('setVolume()', () => {
     call.setVolume(0);
     const room = lastRoom();
 
+    vi.useFakeTimers();
     room.state = 'reconnecting';
     room.emit('reconnecting');
     room.removeParticipant('agent');
-    await flush();
+    await vi.advanceTimersByTimeAsync(MIN_SHOWN_MS);
     room.addAgent('agent');
     room.state = 'connected';
     room.emit('reconnected');
     await flush();
+    vi.useRealTimers();
     expect(call.getState().connection).toBe('connected');
     expect(audio()).toHaveLength(2);
     expect(audio().every(element => element.volume === 0 && element.muted)).toBe(true);

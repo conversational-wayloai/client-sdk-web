@@ -153,8 +153,13 @@ export function createRemoteParticipant(identity: string, isAgent: boolean) {
   };
 }
 
-export function mediaDevice(kind: MediaDeviceKind, deviceId: string, label = ''): MediaDeviceInfo {
-  return { deviceId, groupId: 'group', kind, label, toJSON: () => ({}) };
+export function mediaDevice(
+  kind: MediaDeviceKind,
+  deviceId: string,
+  label = '',
+  groupId = 'group',
+): MediaDeviceInfo {
+  return { deviceId, groupId, kind, label, toJSON: () => ({}) };
 }
 
 export function stubMediaDevices(

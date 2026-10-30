@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { activeCall, record } from '../__setup__/active-call.js';
 import { errorCodeFrom } from '../__setup__/errors.js';
-import { mediaDevice, stubMediaDevices } from '../__setup__/fake-media.js';
+import { type FakeLocalTrack, mediaDevice, stubMediaDevices } from '../__setup__/fake-media.js';
 import { behavior, deferred, flush, lastRoom } from '../__setup__/fake-room.js';
 import { createCall, START } from '../__setup__/fake-session-endpoint.js';
+
+async function devicesChange(room: ReturnType<typeof lastRoom>, devices: MediaDeviceInfo[]) {
+  stubMediaDevices(devices);
+  room.emit('mediaDevicesChanged');
+  await vi.waitFor(() => expect(room.switchActiveDevice.mock.results.length).toBeGreaterThan(0));
+  await flush();
+}
 
 function failBusy(_kind: MediaDeviceKind, deviceId: string): Promise<void> {
   return deviceId === 'busy' ? inUse() : Promise.resolve();
@@ -12,6 +19,16 @@ function failBusy(_kind: MediaDeviceKind, deviceId: string): Promise<void> {
 
 function inUse(): Promise<never> {
   return Promise.reject(new DOMException('Could not start audio source', 'NotReadableError'));
+}
+
+function sinkIds(): string[] {
+  return [...document.querySelectorAll('audio')].map(element => element.sinkId);
+}
+
+function unplug(track: FakeLocalTrack, devices: MediaDeviceInfo[]): void {
+  stubMediaDevices(devices);
+  Object.assign(track.mediaStreamTrack, { readyState: 'ended' });
+  track.emit('ended');
 }
 
 describe('choosing devices before start()', () => {
@@ -231,20 +248,69 @@ describe('switching devices mid-call', () => {
     expect(call.getState().microphoneDeviceId).toBe('usb-mic');
   });
 
-  it('brings an unplugged mic back on another device', async () => {
+  it('reopens an unplugged mic on the system default by itself', async () => {
+    stubMediaDevices([mediaDevice('audioinput', 'usb-mic')]);
     const { call, errors, room } = await activeCall();
     const track = room.localParticipant.microphone?.track;
 
     if (!track) throw new Error('no mic');
+    await call.setMicrophoneDevice('usb-mic');
+    stubMediaDevices([mediaDevice('audioinput', 'default'), mediaDevice('audioinput', 'built-in')]);
     track.mediaStreamTrack.readyState = 'ended';
     track.emit('ended');
-    expect(errors.map(error => error.code)).toEqual(['MICROPHONE_UNAVAILABLE']);
     expect(call.getState().microphone).toBe('off');
 
-    await call.setMicrophoneDevice('built-in');
+    await vi.waitFor(() => expect(call.getState().microphone).toBe('on'));
+    expect(room.switchActiveDevice).toHaveBeenLastCalledWith('audioinput', 'default');
+    expect(call.getState().microphoneDeviceId).toBe('default');
+    expect(errors).toEqual([]);
+  });
 
+  it('keeps an unplugged muted mic muted and opens the system default on unmute', async () => {
+    stubMediaDevices([mediaDevice('audioinput', 'usb-mic')]);
+    const { call, errors, room } = await activeCall();
+    const track = room.localParticipant.microphone?.track;
+
+    if (!track) throw new Error('no mic');
+    await call.setMicrophoneDevice('usb-mic');
+    await call.setMuted(true);
+    unplug(track, [mediaDevice('audioinput', 'default'), mediaDevice('audioinput', 'built-in')]);
+    expect(call.getState().microphone).toBe('muted');
+
+    await vi.waitFor(() => expect(call.getState().microphoneDeviceId).toBe('default'));
+    expect(room.switchActiveDevice).toHaveBeenLastCalledWith('audioinput', 'default');
+    expect(call.getState().microphone).toBe('muted');
+    expect(errors).toEqual([]);
+
+    await call.setMuted(false);
+
+    expect(track.deviceId).toBe('default');
     expect(call.getState().microphone).toBe('on');
   });
+
+  it.each([
+    ['muted', true],
+    ['unmuted', false],
+  ])(
+    'shows the mic off and reports MICROPHONE_UNAVAILABLE once when the %s mic was the last one',
+    async (_, muted) => {
+      const { call, errors, room } = await activeCall();
+      const track = room.localParticipant.microphone?.track;
+
+      if (!track) throw new Error('no mic');
+      await call.setMuted(muted);
+      // Like LiveKit: an unmuted mic it can't restart is muted instead.
+      await track.mute();
+      unplug(track, [mediaDevice('audiooutput', 'default')]);
+      room.emit('mediaDevicesChanged');
+
+      await vi.waitFor(() => expect(errors).toHaveLength(1));
+      await flush();
+      expect(errors.map(error => error.code)).toEqual(['MICROPHONE_UNAVAILABLE']);
+      expect(call.getState().microphone).toBe('off');
+      expect(room.switchActiveDevice).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects a speaker that is not there with SPEAKER_UNAVAILABLE', async () => {
     const { call, room } = await activeCall();
@@ -347,5 +413,174 @@ describe('device setters', () => {
 
     expect(room.switchActiveDevice).not.toHaveBeenCalled();
     expect(call.getState().microphoneDeviceId).toBe('default');
+  });
+});
+
+describe('following devices', () => {
+  const builtIn = [
+    mediaDevice('audioinput', 'default', 'Default - Built-in mic', 'built-in'),
+    mediaDevice('audioinput', 'built-in-mic', 'Built-in mic', 'built-in'),
+    mediaDevice('audiooutput', 'default', 'Default - Built-in speakers', 'built-in'),
+    mediaDevice('audiooutput', 'built-in-speakers', 'Built-in speakers', 'built-in'),
+  ];
+  const headset = [
+    mediaDevice('audioinput', 'headset-mic', 'Headset', 'headset'),
+    mediaDevice('audiooutput', 'headset-speakers', 'Headset', 'headset'),
+  ];
+
+  it('falls back to the system default when a chosen mic and speaker are gone', async () => {
+    stubMediaDevices([...builtIn, ...headset]);
+    const { call, errors, room } = await activeCall();
+
+    await call.setMicrophoneDevice('headset-mic');
+    await call.setSpeakerDevice('headset-speakers');
+    room.switchActiveDevice.mockClear();
+    await devicesChange(room, builtIn);
+
+    expect(room.switchActiveDevice).toHaveBeenCalledWith('audioinput', 'default');
+    expect(room.switchActiveDevice).toHaveBeenCalledWith('audiooutput', 'default');
+    expect(call.getState()).toMatchObject({
+      microphone: 'on',
+      microphoneDeviceId: 'default',
+      speakerDeviceId: 'default',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('keeps a chosen mic and speaker that are still there', async () => {
+    stubMediaDevices([...builtIn, ...headset]);
+    const { call, room } = await activeCall();
+
+    await call.setMicrophoneDevice('headset-mic');
+    await call.setSpeakerDevice('headset-speakers');
+    room.activeDevices.set('audioinput', 'built-in-mic');
+    room.activeDevices.set('audiooutput', 'default');
+    room.switchActiveDevice.mockClear();
+    await devicesChange(room, [...headset, ...builtIn]);
+
+    expect(room.switchActiveDevice.mock.calls).toEqual([
+      ['audiooutput', 'headset-speakers'],
+      ['audioinput', 'headset-mic'],
+    ]);
+    expect(call.getState()).toMatchObject({
+      microphoneDeviceId: 'headset-mic',
+      speakerDeviceId: 'headset-speakers',
+    });
+  });
+
+  it('moves a mic and speaker on the default to the new system default', async () => {
+    stubMediaDevices([...builtIn, ...headset]);
+    const setSinkId = vi.fn(function (this: HTMLMediaElement, sinkId: string) {
+      Object.defineProperty(this, 'sinkId', { configurable: true, value: sinkId });
+
+      return Promise.resolve();
+    });
+
+    Object.assign(HTMLMediaElement.prototype, { setSinkId });
+
+    try {
+      const { call, room } = await activeCall();
+
+      room.switchActiveDevice.mockClear();
+      await devicesChange(room, [
+        mediaDevice('audioinput', 'default', 'Default - Headset', 'headset'),
+        mediaDevice('audiooutput', 'default', 'Default - Headset', 'headset'),
+        ...headset,
+        ...builtIn.filter(device => device.deviceId !== 'default'),
+      ]);
+
+      expect(room.switchActiveDevice).toHaveBeenCalledWith('audioinput', 'default');
+      expect(sinkIds()).toEqual(['headset-speakers']);
+      expect(call.getState()).toMatchObject({ microphone: 'on', microphoneDeviceId: 'default' });
+    } finally {
+      Reflect.deleteProperty(HTMLMediaElement.prototype, 'setSinkId');
+    }
+  });
+
+  it('leaves a chosen speaker alone when the system default moves', async () => {
+    stubMediaDevices([...builtIn, ...headset]);
+    const { call, room } = await activeCall();
+
+    await call.setSpeakerDevice('built-in-speakers');
+    await call.setMicrophoneDevice('built-in-mic');
+    room.switchActiveDevice.mockClear();
+    stubMediaDevices([
+      mediaDevice('audioinput', 'default', 'Default - Headset', 'headset'),
+      mediaDevice('audiooutput', 'default', 'Default - Headset', 'headset'),
+      ...headset,
+      ...builtIn.filter(device => device.deviceId !== 'default'),
+    ]);
+    room.emit('mediaDevicesChanged');
+    await flush();
+    await flush();
+
+    expect(room.switchActiveDevice).not.toHaveBeenCalled();
+    expect(call.getState()).toMatchObject({
+      microphoneDeviceId: 'built-in-mic',
+      speakerDeviceId: 'built-in-speakers',
+    });
+  });
+});
+
+describe("following devices where the browser lists no 'default' entry", () => {
+  const builtIn = [
+    mediaDevice('audioinput', 'built-in-mic', 'Built-in mic', 'built-in'),
+    mediaDevice('audiooutput', 'built-in-speakers', 'Built-in speakers', 'built-in'),
+  ];
+  const headset = [
+    mediaDevice('audioinput', 'headset-mic', 'Headset', 'headset'),
+    mediaDevice('audiooutput', 'headset-speakers', 'Headset', 'headset'),
+  ];
+
+  async function firefoxCall(active: { mic: string; speaker: string }) {
+    behavior.switchDevice = (_kind, deviceId, exact) =>
+      exact && deviceId === 'default'
+        ? Promise.reject(new DOMException('', 'OverconstrainedError'))
+        : Promise.resolve();
+    stubMediaDevices([...builtIn, ...headset]);
+    const started = await activeCall();
+
+    started.room.activeDevices.set('audioinput', active.mic);
+    started.room.activeDevices.set('audiooutput', active.speaker);
+
+    return started;
+  }
+
+  it('keeps the open mic and speaker while they are still there', async () => {
+    const { call, errors, room } = await firefoxCall({
+      mic: 'built-in-mic',
+      speaker: 'built-in-speakers',
+    });
+
+    stubMediaDevices([...headset, ...builtIn]);
+    room.emit('mediaDevicesChanged');
+    await flush();
+    await flush();
+
+    expect(room.switchActiveDevice).not.toHaveBeenCalled();
+    expect(errors).toEqual([]);
+    expect(call.getState().microphone).toBe('on');
+  });
+
+  it("reopens a gone mic on the browser's default without asking for 'default' exactly", async () => {
+    const { call, errors, room } = await firefoxCall({
+      mic: 'headset-mic',
+      speaker: 'headset-speakers',
+    });
+
+    await devicesChange(room, builtIn);
+
+    expect(room.switchActiveDevice.mock.calls).toEqual([['audioinput', 'default', false]]);
+    expect(errors).toEqual([]);
+    expect(call.getState()).toMatchObject({ microphone: 'on', microphoneDeviceId: 'default' });
+  });
+
+  it("opens the browser's default mic when 'default' is chosen", async () => {
+    const { call, room } = await firefoxCall({ mic: 'headset-mic', speaker: 'headset-speakers' });
+
+    await call.setMicrophoneDevice('default');
+
+    expect(room.switchActiveDevice).toHaveBeenLastCalledWith('audioinput', 'default', false);
+    expect(call.getState()).toMatchObject({ microphone: 'on', microphoneDeviceId: 'default' });
   });
 });

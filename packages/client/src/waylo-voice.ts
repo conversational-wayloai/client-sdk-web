@@ -18,7 +18,16 @@ import {
 
 import { abortable } from './abortable.js';
 import { findAgent, waitForAgent } from './agent.js';
-import { hasSpeaker, listDevices, requireDeviceId } from './devices.js';
+import {
+  DEFAULT_DEVICE_ID,
+  enumerateMediaDevices,
+  findDefaultDevice,
+  hasSpeaker,
+  isDefaultUnlisted,
+  isDeviceGone,
+  listDevices,
+  requireDeviceId,
+} from './devices.js';
 import { Emitter } from './emitter.js';
 import { WayloVoiceError } from './errors.js';
 import {
@@ -112,11 +121,14 @@ export class WayloVoice {
   #deviceChanges: Promise<void> = Promise.resolve();
   #muteCalls: Promise<void> = Promise.resolve();
   #microphoneChoice: string | undefined;
+  #speakerChoice: string | undefined;
+  readonly #systemDefaults = new Map<MediaDeviceKind, string>();
   #phase: CallPhase = 'idle';
   #state: WayloVoiceState = INITIAL_STATE;
   #ending = false;
   #closed = false;
   #muted = false;
+  #isMicrophoneMissing = false;
   #hasAgentSpoken = false;
   #error: WayloVoiceError | undefined;
   #room: Room | undefined;
@@ -320,14 +332,20 @@ export class WayloVoice {
       return;
     }
 
-    const previous = room.getActiveDevice('audioinput') ?? 'default';
+    const previous = room.getActiveDevice('audioinput') ?? DEFAULT_DEVICE_ID;
 
     try {
       // A restart attaches the new mic to the sender before disabling it. A muted LiveKit track
       // only keeps the device for the next unmute, so let a queued mute land first.
       if (this.#muted) await this.#muteCalls;
+      const isBrowserDefault =
+        deviceId === DEFAULT_DEVICE_ID &&
+        isDefaultUnlisted(await enumerateMediaDevices(), 'audioinput');
+
       // Exact: Chrome ignores a preferred device id when it can open the default one.
-      await room.switchActiveDevice('audioinput', deviceId);
+      await (isBrowserDefault
+        ? room.switchActiveDevice('audioinput', deviceId, false)
+        : room.switchActiveDevice('audioinput', deviceId));
     } catch (error) {
       // LiveKit stops the old track before opening the new one, so open the previous one again.
       if (!this.#ending) await reopenMicrophone(room, previous);
@@ -342,6 +360,7 @@ export class WayloVoice {
   async #switchSpeaker(deviceId: string): Promise<void> {
     if (this.#ending) return;
     if (!supportsAudioOutputSelection()) throw new WayloVoiceError('SPEAKER_UNAVAILABLE');
+    this.#speakerChoice = deviceId;
     const room = this.#room;
 
     if (!room || !microphoneTrack(room)) {
@@ -354,8 +373,103 @@ export class WayloVoice {
 
     try {
       await room.switchActiveDevice('audiooutput', deviceId);
+      this.#audio.setSinkId(undefined);
     } catch (error) {
       throw new WayloVoiceError('SPEAKER_UNAVAILABLE', error);
+    }
+  }
+
+  // A chosen device stays until it is gone, then the system default; the default follows the system.
+  async #followDevices(room: Room): Promise<void> {
+    if (this.#ending || !microphoneTrack(room)) return;
+    const { devices, microphoneMoved, speakerMoved } = await this.#readSystemDefaults();
+
+    await this.#followSpeaker(room, devices, speakerMoved);
+    await this.#followMicrophone(room, devices, microphoneMoved);
+  }
+
+  async #readSystemDefaults(): Promise<{
+    devices: MediaDeviceInfo[];
+    microphoneMoved: boolean;
+    speakerMoved: boolean;
+  }> {
+    const devices = await enumerateMediaDevices();
+    const microphoneMoved = this.#rememberDefault(devices, 'audioinput');
+    const speakerMoved = this.#rememberDefault(devices, 'audiooutput');
+
+    return { devices, microphoneMoved, speakerMoved };
+  }
+
+  #rememberDefault(devices: readonly MediaDeviceInfo[], kind: MediaDeviceKind): boolean {
+    const deviceId = findDefaultDevice(devices, kind)?.deviceId;
+
+    if (deviceId === undefined) return false;
+    const previous = this.#systemDefaults.get(kind);
+
+    this.#systemDefaults.set(kind, deviceId);
+
+    return previous !== undefined && previous !== deviceId;
+  }
+
+  async #followMicrophone(
+    room: Room,
+    devices: readonly MediaDeviceInfo[],
+    defaultMoved: boolean,
+  ): Promise<void> {
+    const isLive = microphoneTrack(room)?.mediaStreamTrack.readyState === 'live';
+    const wasMissing = this.#isMicrophoneMissing;
+
+    // LiveKit mutes an unmuted mic it can't restart, so the device list decides, not the mute.
+    this.#isMicrophoneMissing = !isLive && !devices.some(device => device.kind === 'audioinput');
+
+    if (this.#isMicrophoneMissing) {
+      this.#syncMicrophone(room);
+      if (!wasMissing) this.#emitError(new WayloVoiceError('MICROPHONE_UNAVAILABLE'));
+
+      return;
+    }
+
+    if (isDeviceGone(devices, 'audioinput', this.#microphoneChoice)) {
+      this.#microphoneChoice = DEFAULT_DEVICE_ID;
+    }
+
+    const target = this.#microphoneChoice ?? DEFAULT_DEVICE_ID;
+    const active = room.getActiveDevice('audioinput') ?? DEFAULT_DEVICE_ID;
+    const isOnTarget =
+      target === DEFAULT_DEVICE_ID && isDefaultUnlisted(devices, 'audioinput')
+        ? !isDeviceGone(devices, 'audioinput', active)
+        : active === target;
+
+    if (isLive && isOnTarget && !(target === DEFAULT_DEVICE_ID && defaultMoved)) return;
+    await this.#switchMicrophone(target);
+  }
+
+  async #followSpeaker(
+    room: Room,
+    devices: readonly MediaDeviceInfo[],
+    defaultMoved: boolean,
+  ): Promise<void> {
+    if (!supportsAudioOutputSelection()) return;
+
+    if (isDeviceGone(devices, 'audiooutput', this.#speakerChoice)) {
+      this.#speakerChoice = DEFAULT_DEVICE_ID;
+    }
+
+    const target = this.#speakerChoice ?? DEFAULT_DEVICE_ID;
+    // Without a 'default' sink, the browser and LiveKit move audio off a gone speaker by themselves.
+    const followsBrowser =
+      target === DEFAULT_DEVICE_ID && isDefaultUnlisted(devices, 'audiooutput');
+
+    if (!followsBrowser && (room.getActiveDevice('audiooutput') ?? DEFAULT_DEVICE_ID) !== target) {
+      await room.switchActiveDevice('audiooutput', target).catch(() => undefined);
+      this.#audio.setSinkId(undefined);
+    }
+
+    if (this.#speakerChoice !== undefined) this.#updateState({ speakerDeviceId: target });
+
+    // Setting the same 'default' sink again is a no-op, so name the device behind it.
+    if (target === DEFAULT_DEVICE_ID && defaultMoved) {
+      this.#audio.setSinkId(findDefaultDevice(devices, 'audiooutput')?.deviceId);
     }
   }
 
@@ -409,7 +523,10 @@ export class WayloVoice {
       signal.throwIfAborted();
       this.#markTiming('microphoneReadyMs');
       // After the mic: some browsers list speakers only once the mic is allowed.
-      await this.#queueChange(() => this.#applySpeaker(room));
+      await this.#queueChange(async () => {
+        await this.#applySpeaker(room);
+        await this.#readSystemDefaults();
+      });
 
       this.#attachSubscribedAudio(room);
       this.#agent = await waitForAgent(room, this.#agentTimeoutMs, signal);
@@ -444,7 +561,8 @@ export class WayloVoice {
     if (await hasSpeaker(deviceId)) {
       await room.switchActiveDevice('audiooutput', deviceId).catch(() => undefined);
     } else {
-      this.#updateState({ speakerDeviceId: 'default' });
+      this.#speakerChoice = DEFAULT_DEVICE_ID;
+      this.#updateState({ speakerDeviceId: DEFAULT_DEVICE_ID });
     }
   }
 
@@ -540,7 +658,7 @@ export class WayloVoice {
   #watchMicrophone(room: Room, track: LocalTrack): void {
     const onEnded = () => {
       this.#syncMicrophone(room);
-      this.#emitError(new WayloVoiceError('MICROPHONE_UNAVAILABLE'));
+      this.#queueDeviceFollow(room);
     };
 
     const onRestarted = () => this.#syncMicrophone(room);
@@ -645,7 +763,14 @@ export class WayloVoice {
     });
   }
 
+  #queueDeviceFollow(room: Room): void {
+    this.#queueChange(() => this.#followDevices(room)).catch((error: unknown) =>
+      this.#emitError(toWayloVoiceError(error, [])),
+    );
+  }
+
   #listenToDevices(room: Room): void {
+    this.#addRoomListener(room, RoomEvent.MediaDevicesChanged, () => this.#queueDeviceFollow(room));
     // Read the room's choice: on an OS default change LiveKit reports the new device but keeps 'default'.
     this.#addRoomListener(room, RoomEvent.ActiveDeviceChanged, kind => {
       const deviceId = room.getActiveDevice(kind);
@@ -771,12 +896,20 @@ export class WayloVoice {
     this.#updateState({ agent: agent ? toAgentState(agent.attributes) : 'none' });
   }
 
-  // Reads the published track, never the requested flag, so the state can't claim a mute LiveKit lacks.
+  // Reads the published track, so the state never claims a mute LiveKit lacks.
   #syncMicrophone(room: Room): void {
     const track = microphoneTrack(room);
-    const isLive = track?.mediaStreamTrack.readyState === 'live';
 
-    this.#updateState({ microphone: isLive ? (track.isMuted ? 'muted' : 'on') : 'off' });
+    if (track?.mediaStreamTrack.readyState === 'live') {
+      this.#updateState({ microphone: track.isMuted ? 'muted' : 'on' });
+
+      return;
+    }
+
+    // A muted mic that ended stays muted: LiveKit opens the system default on the next unmute.
+    const isMutedByVisitor = track?.isMuted === true && this.#muted && !this.#isMicrophoneMissing;
+
+    this.#updateState({ microphone: isMutedByVisitor ? 'muted' : 'off' });
   }
 
   // A full reconnect unpublishes, restarts and republishes the mic; a mute pressed meanwhile waits.
@@ -925,7 +1058,7 @@ async function openMicrophone(room: Room, deviceId: string | undefined): Promise
 async function reopenMicrophone(room: Room, deviceId: string): Promise<void> {
   await room
     .switchActiveDevice('audioinput', deviceId)
-    .catch(() => room.switchActiveDevice('audioinput', 'default', false))
+    .catch(() => room.switchActiveDevice('audioinput', DEFAULT_DEVICE_ID, false))
     .catch(() => undefined);
 }
 

@@ -25,19 +25,11 @@ jobs:
 
       - run: pnpm build
 
-      - run: pnpm pack:client
-
-      # Ahead of `validate`: lint:example resolves `@waylovoice/client` from the installed tarball.
-      # The example lockfile pins the tarball's hash, which changes with every SDK change.
-      - run: pnpm install:example --no-frozen-lockfile
-
       - run: pnpm validate
 
-      # `lint` and `lint:example` run eslint --fix, so they can pass by rewriting files. Fail if they did.
+      # `lint` runs eslint --fix, so they can pass by rewriting files. Fail if they did.
       - run: git diff --exit-code
 
-      # The example consumes the packed tarball, so these prove its `exports` and declarations
-      # work for a real install.
-      - run: pnpm typecheck:example
-
-      - run: pnpm build:example
+      # Installs the packed SDK into a temporary copy of the example, then type-checks and builds it,
+      # to prove its `exports` and declarations work for a real install.
+      - run: pnpm test:pack

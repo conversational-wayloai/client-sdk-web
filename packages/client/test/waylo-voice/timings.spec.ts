@@ -36,10 +36,11 @@ describe('WayloVoice timings', () => {
     const { timings } = call.getState();
 
     expect(timings).toEqual({
-      agentReadyMs: 400,
-      connectedMs: 200,
-      microphoneReadyMs: 300,
-      sessionReadyMs: 100,
+      agentReadyMs: 500,
+      connectedMs: 300,
+      microphoneOpenMs: 100,
+      microphoneReadyMs: 400,
+      sessionReadyMs: 200,
       startedAt: 1_767_000_000_000,
     });
     expect(Object.isFrozen(timings)).toBe(true);
@@ -60,6 +61,28 @@ describe('WayloVoice timings', () => {
     await started;
     expect(call.getState().timings?.agentReadyMs).toBe(agentReadyMs);
     expect(agentReadyMs).toBeLessThan(call.getState().timings?.microphoneReadyMs ?? 0);
+  });
+
+  it('marks the mic open on its own time, and ready only once it is live in the call', async () => {
+    const prompt = deferred();
+
+    behavior.microphone = () => prompt.promise;
+    const call = createCall();
+    const started = call.start(START);
+
+    await flush();
+    expect(call.getState().timings?.connectedMs).toBeDefined();
+    expect(call.getState().timings?.microphoneOpenMs).toBeUndefined();
+    prompt.resolve();
+    await started;
+    const {
+      connectedMs = 0,
+      microphoneOpenMs = 0,
+      microphoneReadyMs = 0,
+    } = call.getState().timings ?? {};
+
+    expect(microphoneOpenMs).toBeGreaterThan(connectedMs);
+    expect(microphoneReadyMs).toBeGreaterThan(microphoneOpenMs);
   });
 
   it('marks the agent ready once', async () => {
@@ -150,6 +173,10 @@ describe('WayloVoice timings', () => {
     connecting.resolve();
     await started;
 
-    expect(call.getState().timings).toEqual({ sessionReadyMs: 100, startedAt: 1_767_000_000_000 });
+    expect(call.getState().timings).toEqual({
+      microphoneOpenMs: 100,
+      sessionReadyMs: 200,
+      startedAt: 1_767_000_000_000,
+    });
   });
 });

@@ -236,7 +236,8 @@ if (microphone) await wayloVoice?.setMicrophoneDevice(microphone.deviceId);
 
 - `sessionReadyMs`: the session endpoint answered.
 - `connectedMs`: this browser joined the call.
-- `microphoneReadyMs`: the microphone is live in the call. It opens while the call connects, so the time the visitor takes to allow it overlaps the earlier steps.
+- `microphoneOpenMs`: the browser opened the microphone, permission prompt included. It opens while the call connects, so the time the visitor takes to allow it overlaps the earlier steps.
+- `microphoneReadyMs`: the microphone is live in the call, so the agent can hear the visitor.
 - `agentReadyMs`: the agent reported its first activity state; `start()` resolves once the microphone is ready too.
 - `agentSpeakingMs`: the agent starts speaking while `playback` is `'playing'`; its audio arrives a few hundred milliseconds later. If audio was blocked, it is set once `resumeAudio()` lets it play while the agent speaks, or at the agent's next turn. This is the visitor's wait to hear the agent.
 

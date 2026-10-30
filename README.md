@@ -122,7 +122,7 @@ if (canChooseSpeaker && speaker) await wayloVoice.setSpeakerDevice(speaker.devic
 
 ### Timings
 
-`state.timings` says how long each step of `start()` took, in milliseconds after `start()` was called: `sessionReadyMs`, `connectedMs`, `microphoneReadyMs` (the microphone opens while the call connects, so the permission prompt overlaps the earlier steps), `agentReadyMs` and `agentSpeakingMs` (the agent starts speaking while the browser may play it; its audio arrives a few hundred milliseconds later), plus `startedAt` (`Date.now()` at `start()`). Steps can finish out of order: the agent can be ready before the microphone. Send them to your analytics to measure how long visitors wait to hear the agent. `state.timings` is for logging and monitoring; don't show it to visitors, show the call status instead.
+`state.timings` says how long each step of `start()` took, in milliseconds after `start()` was called: `sessionReadyMs`, `connectedMs`, `microphoneOpenMs` (the browser opened the microphone, permission prompt included; it opens while the call connects, so it overlaps the earlier steps), `microphoneReadyMs` (the microphone is live in the call, so the agent can hear the visitor), `agentReadyMs` and `agentSpeakingMs` (the agent starts speaking while the browser may play it; its audio arrives a few hundred milliseconds later), plus `startedAt` (`Date.now()` at `start()`). Steps can finish out of order: the agent can be ready before the microphone. Send them to your analytics to measure how long visitors wait to hear the agent. `state.timings` is for logging and monitoring; don't show it to visitors, show the call status instead.
 
 ## Your session endpoint
 

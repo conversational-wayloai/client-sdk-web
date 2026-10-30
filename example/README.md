@@ -2,7 +2,7 @@
 
 A minimal web page that talks to a Waylo voice agent with `@waylovoice/client`. A small Node server keeps your API key and serves the session endpoint `POST /api/waylo/session`. The page creates one `WayloVoice` per call and starts it with the agent id; the SDK fetches the session itself.
 
-It installs the SDK from the packed tarball, not from the source tree, to prove a real install works. It is its own pnpm project, outside the root workspace.
+It is a workspace member and uses the SDK through `workspace:*`. `pnpm test:pack` installs the packed tarball into a temporary copy of it to prove a real install works.
 
 Using the SDK (one `WayloVoice` per call):
 
@@ -44,16 +44,13 @@ From the repository root:
 
 ```sh
 pnpm install
-pnpm build
-pnpm pack:client        # writes packages/client/waylovoice-client-0.1.0.tgz
-pnpm install:example
-pnpm build:example
+pnpm build              # builds the SDK, then the example
 cd example && pnpm start
 ```
 
 Open http://127.0.0.1:5190 in Chrome.
 
-While editing `src/main.ts`, run `pnpm dev:example` in a second terminal to rebuild on save. After changing the SDK, run `pnpm pack:client` and `pnpm install:example` again.
+While editing `src/main.ts`, run `pnpm dev:example` in a second terminal to rebuild on save. After changing the SDK, run `pnpm build` again.
 
 ## What you should see
 

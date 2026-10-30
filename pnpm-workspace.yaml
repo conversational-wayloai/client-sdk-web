@@ -1,5 +1,6 @@
 packages:
   - packages/*
+  - example
 
 catalog:
   '@gilbarbara/eslint-config': ^1.2.3

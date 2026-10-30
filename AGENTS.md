@@ -12,8 +12,8 @@ Rules for this repository: the Waylo Voice AI browser SDK, published as `@waylov
 ## Layout
 
 - `packages/client` — the SDK. `src/` is the code, `test/` mirrors it, `test/__setup__/` holds the shared LiveKit mock, fakes and fixtures.
-- `example/` — a minimal page and Node server that install the SDK from the packed tarball. Its own pnpm project, outside the workspace. See [example/README.md](example/README.md).
-- `.github/workflows/ci.yml` — builds, packs, validates, and type-checks and builds the example against the tarball.
+- `example/` — a minimal page and Node server, a workspace member that uses the SDK through `workspace:*`. See [example/README.md](example/README.md).
+- `.github/workflows/ci.yml` — builds, validates, then runs `pnpm test:pack`.
 
 ## Tooling
 
@@ -28,15 +28,14 @@ Rules for this repository: the Waylo Voice AI browser SDK, published as `@waylov
 | Command | Does |
 | --- | --- |
 | `pnpm install` | Install the workspace |
-| `pnpm validate` | Format check, then lint, typecheck and tests with coverage for the SDK, then lint the example |
-| `pnpm -r build` | Build the SDK into `packages/client/dist` |
+| `pnpm validate` | Format check, then lint, typecheck and tests with coverage for the SDK, and lint for the example |
+| `pnpm -r build` | Build the SDK into `packages/client/dist`, then the example |
 | `pnpm -r test` | Run the SDK tests |
 | `pnpm pack:client` | Pack the SDK into `packages/client/waylovoice-client-<version>.tgz` |
-| `pnpm install:example` | Install the example against the packed tarball |
-| `pnpm build:example` / `pnpm dev:example` | Build the example once / on save |
-| `pnpm lint:example` / `pnpm typecheck:example` | Lint / type-check the example |
+| `pnpm test:pack` | Install the packed SDK into a temporary copy of the example, then type-check and build it |
+| `pnpm dev:example` | Rebuild the example on save |
 
-After changing the SDK, run `pnpm build`, `pnpm pack:client` and `pnpm install:example` before checking the example.
+After changing the SDK, run `pnpm build` before checking the example.
 
 ## Testing
 

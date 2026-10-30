@@ -261,7 +261,8 @@ wayloVoice?.on('state', state => {
 | `LIMIT_REACHED` | The session endpoint answered 429. | "Too many calls right now. Try again in a minute." | Yes, later |
 | `INVALID_SESSION` | The session endpoint's 200 body is not a Waylo session; return it unchanged. | "Something went wrong. Please try again later." | No, fix the endpoint |
 | `SESSION_EXPIRED` | The session expired or was rejected. | "Please try again." | Yes, new call |
-| `CONNECTION_FAILED` | The endpoint failed or took over 15 s, the call could not connect, or it dropped. | "Couldn't connect. Check your internet and try again." | Yes |
+| `CONNECTION_FAILED` | The endpoint failed or took over 15 s, the call could not connect, or the call server ended it with an error. | "Couldn't connect. Check your internet and try again." | Yes |
+| `CONNECTION_LOST` | The visitor's connection dropped mid-call and could not be restored. | "Your connection dropped. Check your internet and start a new call." | Yes, new call |
 | `MICROPHONE_DENIED` | The visitor or the browser blocked the microphone. | "Allow the microphone in your browser, then try again." | After allowing it |
 | `MICROPHONE_IN_USE` | Another app or tab holds the microphone, or the system could not start it. | "Your microphone is busy. Close other apps using it, then try again." | Yes |
 | `MICROPHONE_UNAVAILABLE` | No usable microphone, the chosen one can't be opened, or the browser refused it for another reason. The original error is in `cause`. | "No working microphone found. Connect one, then try again." | Yes, after fixing it |

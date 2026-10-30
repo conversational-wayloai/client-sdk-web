@@ -3,10 +3,11 @@ import { DisconnectReason } from 'livekit-client';
 export type CallPhase =
   'active' | 'ended' | 'failed' | 'idle' | 'starting' | 'stopped' | 'stopping';
 
-export type DisconnectDecision = 'abort_start' | 'end' | 'fail' | 'ignore';
+export type DisconnectDecision = 'abort_start' | 'end' | 'fail' | 'ignore' | 'lose';
 
 export interface DisconnectInput {
   isConnected: boolean;
+  isReconnecting: boolean;
   outcome: SessionOutcome | null;
   phase: CallPhase;
   reason: DisconnectReason | undefined;
@@ -40,11 +41,15 @@ export interface SessionOutcome {
 // Without a worker verdict, only these reasons mean the call broke.
 export const ERROR_DISCONNECT_REASONS: ReadonlySet<DisconnectReason> = new Set([
   DisconnectReason.AGENT_ERROR,
-  DisconnectReason.CONNECTION_TIMEOUT,
   DisconnectReason.DUPLICATE_IDENTITY,
   DisconnectReason.JOIN_FAILURE,
   DisconnectReason.MEDIA_FAILURE,
   DisconnectReason.SERVER_SHUTDOWN,
+]);
+
+// These mean the visitor's own link died, not the room or the agent.
+export const LOST_DISCONNECT_REASONS: ReadonlySet<DisconnectReason> = new Set([
+  DisconnectReason.CONNECTION_TIMEOUT,
   DisconnectReason.SIGNAL_CLOSE,
   DisconnectReason.STATE_MISMATCH,
 ]);
@@ -55,6 +60,7 @@ export function decideAgentLeft(outcome: SessionOutcome | null): 'end' | 'fail' 
 
 export function decideDisconnect({
   isConnected,
+  isReconnecting,
   outcome,
   phase,
   reason,
@@ -64,6 +70,11 @@ export function decideDisconnect({
   if (phase === 'starting') return isConnected ? 'abort_start' : 'ignore';
   if (phase !== 'active') return 'ignore';
   if (outcome) return outcome.state === 'error' ? 'fail' : 'end';
+
+  // LiveKit gives up reconnecting with no reason at all.
+  if (isReconnecting || (reason !== undefined && LOST_DISCONNECT_REASONS.has(reason))) {
+    return 'lose';
+  }
 
   return reason !== undefined && ERROR_DISCONNECT_REASONS.has(reason) ? 'fail' : 'end';
 }

@@ -339,7 +339,7 @@ describe('WayloVoice end of call', () => {
   it('fails with CONNECTION_FAILED on an error disconnect without a verdict', async () => {
     const { call, errors, room } = await activeCall();
 
-    room.serverDisconnect(DisconnectReason.SIGNAL_CLOSE);
+    room.serverDisconnect(DisconnectReason.SERVER_SHUTDOWN);
     await flush();
     expect(errors.map(error => error.code)).toEqual(['CONNECTION_FAILED']);
     expect(call.getState().end).toMatchObject({

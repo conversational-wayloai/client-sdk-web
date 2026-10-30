@@ -69,6 +69,7 @@ The event log at the bottom numbers each call, so a late event from an old call 
 | --- | --- |
 | `GET /api/example/agent` | Returns `{ agentId }`. The agent id is not secret. |
 | `POST /api/waylo/session` | The session endpoint. `403` for any agent other than `AGENT_ID`, otherwise calls `POST /sessions/web` with the API key and returns the body unchanged with `Cache-Control: no-store`. |
+| `GET /api/example/setup-error` | Returns the last `502` / `504` body with its developer `hint`, which the page shows under a failed call. Never the key or token. |
 
 The example has no login. A real app checks its own user's login and access to the agent at the marked spot in `server.mjs`.
 
@@ -83,17 +84,17 @@ Errors from the session endpoint (`POST /api/waylo/session`):
 | 415 | `json_required` | Send `Content-Type: application/json`. |
 | 429 | `api_error` | The Waylo API is rate limiting. Wait and try again. |
 | 500 | `internal_error` | Check the server terminal. |
-| 502 | `api_error` | The Waylo API refused the request. The terminal shows its status and error code. |
+| 502 | `api_error` | The Waylo API refused the request. The body's `upstreamStatus` and `hint`, and the terminal, say why. |
 | 502 | `api_unreachable` | Check `WAYLO_API_URL` and your network. The terminal shows the cause. |
 | 504 | `api_timeout` | The Waylo API did not answer within 10 seconds. Try again. |
 
 Waylo API errors the terminal can show:
 
-| Status | Likely cause                                                          |
-| ------ | --------------------------------------------------------------------- |
-| 401    | `WAYLO_API_KEY` is wrong or revoked.                                  |
-| 403    | The key lacks `sessions:write` or is pinned to a different workspace. |
-| 404    | `WORKSPACE_ID` or `AGENT_ID` is wrong.                                |
+| Status | Likely cause |
+| --- | --- |
+| 401 | `WAYLO_API_KEY` is wrong or revoked. |
+| 403 | The key lacks `sessions:write`. |
+| 404 | `WORKSPACE_ID` or `AGENT_ID` is wrong, the agent is inactive, or the key is pinned to another workspace. |
 
 Errors from the SDK (`WayloVoiceError.code`):
 

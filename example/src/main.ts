@@ -13,6 +13,7 @@ import {
 } from '@waylovoice/client';
 
 const SESSION_ENDPOINT = '/api/waylo/session';
+const SETUP_ERROR_ENDPOINT = '/api/example/setup-error';
 const AGENT_LOAD_ERROR = 'Could not load /api/example/agent. Is the server running?';
 
 const HINTS: Partial<Record<WayloVoiceErrorCode, string>> = {
@@ -98,6 +99,7 @@ let current: WayloVoice | undefined;
 let callNumber = 0;
 let startedAt: number | undefined;
 let clock: number | undefined;
+let setupHint: string | undefined;
 const rows = new Map<string, HTMLElement>();
 
 function describeChanges(before: WayloVoiceState, after: WayloVoiceState): string {
@@ -314,6 +316,7 @@ function resetCallView(): void {
   timerText.textContent = '';
   startup.hidden = true;
   endSummary.hidden = true;
+  setupHint = undefined;
   showError('');
 }
 
@@ -323,7 +326,11 @@ function showDeviceError(error: unknown): void {
 }
 
 function showEnd(end: WayloVoiceEnd): void {
-  const lines = [describeEnd(end), `Call length ${timerText.textContent || '00:00'}`];
+  const lines = [
+    describeEnd(end),
+    setupHint && `Developer hint: ${setupHint}`,
+    `Call length ${timerText.textContent || '00:00'}`,
+  ].filter(line => typeof line === 'string');
 
   endSummary.role = end.status === 'failed' ? 'alert' : null;
   endSummary.replaceChildren(
@@ -341,6 +348,23 @@ function showEnd(end: WayloVoiceEnd): void {
 function showError(message: string): void {
   errorText.textContent = message;
   errorText.hidden = message === '';
+}
+
+// The SDK keeps the session endpoint's error body to itself; the example server repeats its hint.
+async function showSetupHint(call: WayloVoice, error: unknown): Promise<void> {
+  const status = error instanceof WayloVoiceError && (error.cause as { status?: number })?.status;
+
+  if (status !== 502 && status !== 504) return;
+
+  const body = (await fetch(SETUP_ERROR_ENDPOINT)
+    .then(response => (response.ok ? response.json() : undefined))
+    .catch(() => undefined)) as { hint?: string } | undefined;
+  const { end } = call.getState();
+
+  if (!body?.hint || call !== current || !end) return;
+
+  setupHint = body.hint;
+  showEnd(end);
 }
 
 function startCall(id: string): WayloVoice {
@@ -379,7 +403,7 @@ function startCall(id: string): WayloVoice {
   }
 
   // The failure also arrives as the final `state` with `end`.
-  wayloVoice.start({ agentId: id }).catch(() => undefined);
+  wayloVoice.start({ agentId: id }).catch(error => showSetupHint(wayloVoice, error));
 
   return wayloVoice;
 }

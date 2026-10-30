@@ -145,7 +145,7 @@ describe('WayloVoice', () => {
       };
 
       await createCall().start(START);
-      expect(listenersAtConnect).toBe(11);
+      expect(listenersAtConnect).toBe(15);
       expect(lastRoom().registerTextStreamHandler).toHaveBeenCalledWith(
         'lk.transcription',
         expect.any(Function),

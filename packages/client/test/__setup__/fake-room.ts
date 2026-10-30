@@ -86,10 +86,21 @@ export class FakeRoom {
   switchActiveDevice = vi.fn(async (kind: MediaDeviceKind, deviceId: string, exact = true) => {
     const track = kind === 'audioinput' ? this.localParticipant.microphone?.track : undefined;
 
+    // Like LiveKit's setDeviceId: a muted mic is not restarted; its next unmute opens the device.
+    if (track?.isMuted) {
+      track.pendingDeviceId = deviceId;
+      this.activeDevices.set(kind, deviceId);
+      this.emit('activeDeviceChanged', kind, deviceId);
+
+      return true;
+    }
+
     if (track) track.mediaStreamTrack.readyState = 'ended';
     const isChosenDevice = (await behavior.switchDevice(kind, deviceId, exact)) ?? true;
 
-    if (track) track.mediaStreamTrack.readyState = 'live';
+    // Like LiveKit's restart: the new track takes the mute state at the end of the switch.
+    if (track)
+      Object.assign(track.mediaStreamTrack, { enabled: !track.isMuted, readyState: 'live' });
     this.activeDevices.set(kind, isChosenDevice ? deviceId : 'fallback');
     this.emit('activeDeviceChanged', kind, this.activeDevices.get(kind));
 

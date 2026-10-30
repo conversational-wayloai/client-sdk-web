@@ -195,6 +195,283 @@ describe('setMuted()', () => {
     expect(call.getState().microphone).toBe('muted');
   });
 
+  it('keeps a mute pressed while an unmute is still running', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    await call.setMuted(true);
+    const { localParticipant } = lastRoom();
+    const unmuting = deferred();
+
+    localParticipant.setMicrophoneEnabled.mockImplementationOnce(async () => {
+      await unmuting.promise;
+      await localParticipant.microphone?.track.unmute();
+
+      return localParticipant.microphone;
+    });
+    const toggles = [call.setMuted(false), call.setMuted(true)];
+
+    await flush();
+    unmuting.resolve();
+    await Promise.all(toggles);
+
+    expect(localParticipant.microphone?.track.isMuted).toBe(true);
+    expect(call.getState().microphone).toBe('muted');
+  });
+
+  it('applies only the last of rapid toggles, one LiveKit call at a time', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    const { localParticipant } = lastRoom();
+    const muting = deferred();
+
+    localParticipant.setMicrophoneEnabled.mockImplementationOnce(async () => {
+      await muting.promise;
+      await localParticipant.microphone?.track.mute();
+
+      return localParticipant.microphone;
+    });
+    const first = call.setMuted(true);
+
+    await flush();
+    const toggles = [
+      first,
+      ...[false, true, false, true, false].map(muted => call.setMuted(muted)),
+    ];
+
+    await flush();
+    expect(localParticipant.setMicrophoneEnabled).toHaveBeenCalledTimes(1);
+    muting.resolve();
+    await Promise.all(toggles);
+
+    expect(localParticipant.setMicrophoneEnabled.mock.calls).toEqual([[false], [true]]);
+    expect(localParticipant.microphone?.track.isMuted).toBe(false);
+    expect(call.getState().microphone).toBe('on');
+  });
+
+  it('mutes at once during a mic switch, and the new mic comes up muted', async () => {
+    const switched = deferred();
+    const call = createCall();
+
+    await call.start(START);
+    const { localParticipant } = lastRoom();
+    const track = localParticipant.microphone?.track;
+
+    behavior.switchDevice = () => switched.promise;
+    const switching = call.setMicrophoneDevice('usb');
+
+    await flush();
+    await call.setMuted(true);
+    expect(localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false);
+    switched.resolve();
+    await switching;
+
+    expect(track?.mediaStreamTrack).toMatchObject({ enabled: false, readyState: 'live' });
+    expect(call.getState().microphone).toBe('muted');
+  });
+
+  it('opens no mic for a switch while muted, and the unmute opens the new one', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    await call.setMuted(true);
+    const { localParticipant } = lastRoom();
+    const track = localParticipant.microphone?.track;
+    const switchDevice = vi.spyOn(behavior, 'switchDevice');
+
+    await call.setMicrophoneDevice('usb');
+
+    expect(switchDevice).not.toHaveBeenCalled();
+    expect(track?.mediaStreamTrack).toMatchObject({ enabled: false, readyState: 'live' });
+    expect(call.getState()).toMatchObject({ microphone: 'muted', microphoneDeviceId: 'usb' });
+
+    await call.setMuted(false);
+
+    expect(track?.deviceId).toBe('usb');
+    expect(call.getState()).toMatchObject({ microphone: 'on', microphoneDeviceId: 'usb' });
+  });
+
+  it('opens no mic for a switch pressed together with a mute', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    const { localParticipant } = lastRoom();
+    const track = localParticipant.microphone?.track;
+    const switchDevice = vi.spyOn(behavior, 'switchDevice');
+
+    await Promise.all([call.setMicrophoneDevice('usb'), call.setMuted(true)]);
+
+    expect(switchDevice).not.toHaveBeenCalled();
+    expect(track?.mute.mock.invocationCallOrder[0]).toBeLessThan(
+      lastRoom().switchActiveDevice.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(track?.mediaStreamTrack.enabled).toBe(false);
+    expect(call.getState()).toMatchObject({ microphone: 'muted', microphoneDeviceId: 'usb' });
+
+    await call.setMuted(false);
+
+    expect(track?.deviceId).toBe('usb');
+    expect(call.getState().microphone).toBe('on');
+  });
+
+  it('keeps a mic reopened by an unmute disabled once LiveKit unmutes it, when a mute comes meanwhile', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    await call.setMuted(true);
+    const { localParticipant } = lastRoom();
+    const track = localParticipant.microphone?.track;
+
+    if (!track) throw new Error('no mic');
+    await call.setMicrophoneDevice('usb');
+    const opened = deferred();
+    const enabledOnUnmute: boolean[] = [];
+
+    localParticipant.setMicrophoneEnabled.mockImplementationOnce(async () => {
+      await opened.promise;
+      await track.unmute();
+
+      return localParticipant.microphone;
+    });
+    track.on('unmuted', () => enabledOnUnmute.push(track.mediaStreamTrack.enabled));
+    const unmuting = call.setMuted(false);
+
+    await flush();
+    const muting = call.setMuted(true);
+
+    opened.resolve();
+    await Promise.all([unmuting, muting]);
+
+    expect(enabledOnUnmute).toEqual([false]);
+    expect(track.mediaStreamTrack.enabled).toBe(false);
+    expect(call.getState()).toMatchObject({ microphone: 'muted', microphoneDeviceId: 'usb' });
+  });
+
+  it('leaves no timer behind after a muted switch and the call end', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    vi.useFakeTimers();
+
+    try {
+      await Promise.all([call.setMicrophoneDevice('usb'), call.setMuted(true)]);
+      await call.stop();
+
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('unmutes only after a mic switch in flight', async () => {
+    const switched = deferred();
+    const call = createCall();
+
+    await call.start(START);
+    const { localParticipant } = lastRoom();
+
+    behavior.switchDevice = () => switched.promise;
+    const switching = call.setMicrophoneDevice('usb');
+
+    await flush();
+    await call.setMuted(true);
+    const unmuting = call.setMuted(false);
+
+    await flush();
+    expect(localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false);
+    switched.resolve();
+    await Promise.all([switching, unmuting]);
+
+    expect(localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(true);
+    expect(call.getState().microphone).toBe('on');
+  });
+
+  it('keeps a mute pressed while an unmute waits for a mic switch', async () => {
+    const switched = deferred();
+    const call = createCall();
+
+    await call.start(START);
+    await call.setMuted(true);
+    const { localParticipant } = lastRoom();
+
+    behavior.switchDevice = () => switched.promise;
+    const toggles = [call.setMicrophoneDevice('usb'), call.setMuted(false), call.setMuted(true)];
+
+    await flush();
+    switched.resolve();
+    await Promise.all(toggles);
+
+    expect(localParticipant.setMicrophoneEnabled).toHaveBeenCalledTimes(1);
+    expect(localParticipant.microphone?.track.mediaStreamTrack.enabled).toBe(false);
+    expect(call.getState().microphone).toBe('muted');
+  });
+
+  it('shows the mic again once LiveKit republishes it after a full reconnect', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    const room = lastRoom();
+    const { localParticipant } = room;
+    const publication = localParticipant.microphone;
+
+    if (!publication) throw new Error('no mic');
+    localParticipant.microphone = undefined;
+    room.emit('localTrackUnpublished', { source: 'microphone' }, localParticipant);
+    publication.track.emit('restarted');
+    expect(call.getState().microphone).toBe('off');
+
+    localParticipant.microphone = publication;
+    room.emit('localTrackPublished', { source: 'microphone' }, localParticipant);
+    expect(call.getState().microphone).toBe('on');
+  });
+
+  it('applies a mute pressed during a full reconnect once the mic is republished', async () => {
+    const call = createCall();
+
+    await call.start(START);
+    const room = lastRoom();
+    const { localParticipant } = room;
+    const publication = localParticipant.microphone;
+
+    if (!publication) throw new Error('no mic');
+    localParticipant.microphone = undefined;
+    await call.setMuted(true);
+    expect(localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+
+    localParticipant.microphone = publication;
+    room.emit('localTrackPublished', { source: 'microphone' }, localParticipant);
+    await flush();
+
+    expect(localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false);
+    expect(call.getState().microphone).toBe('muted');
+  });
+
+  it('reports an unmute that fails after a republish as an error event, staying muted', async () => {
+    const call = createCall();
+    const errors: string[] = [];
+
+    call.on('error', error => errors.push(error.code));
+    await call.start(START);
+    await call.setMuted(true);
+    const room = lastRoom();
+    const { localParticipant } = room;
+    const publication = localParticipant.microphone;
+
+    if (!publication) throw new Error('no mic');
+    localParticipant.microphone = undefined;
+    await call.setMuted(false);
+    localParticipant.setMicrophoneEnabled.mockRejectedValueOnce(
+      new DOMException('denied', 'NotAllowedError'),
+    );
+    localParticipant.microphone = publication;
+    room.emit('localTrackPublished', { source: 'microphone' }, localParticipant);
+    await flush();
+
+    expect(errors).toEqual(['MICROPHONE_DENIED']);
+    expect(call.getState().microphone).toBe('muted');
+  });
+
   it('is a no-op after stop()', async () => {
     const call = createCall();
 
@@ -338,7 +615,7 @@ describe('getMicrophoneLevel()', () => {
     const track = lastRoom().localParticipant.microphone?.track;
 
     if (!track) throw new Error('no microphone');
-    track.mediaStreamTrack = { readyState: 'live' };
+    track.mediaStreamTrack = { enabled: true, readyState: 'live' };
     call.getMicrophoneLevel();
     expect(analysers).toHaveLength(2);
     expect(analysers[0]?.cleanup).toHaveBeenCalledOnce();

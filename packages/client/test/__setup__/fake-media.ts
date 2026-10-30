@@ -88,10 +88,11 @@ export function createLocalParticipant(
 }
 
 export function createLocalTrack() {
-  const mediaStreamTrack = { readyState: 'live' as MediaStreamTrackState };
+  const mediaStreamTrack = { enabled: true, readyState: 'live' as MediaStreamTrackState };
   const listeners = new Map<string, Set<() => void>>();
   const track = {
     deviceId: 'default',
+    pendingDeviceId: undefined as string | undefined,
     isMuted: false,
     mediaStreamTrack,
     getDeviceId: vi.fn(async () => track.deviceId),
@@ -107,6 +108,7 @@ export function createLocalTrack() {
     },
     mute: vi.fn(async () => {
       track.isMuted = true;
+      track.mediaStreamTrack.enabled = false;
     }),
     off: vi.fn((event: string, listener: () => void) => {
       listeners.get(event)?.delete(listener);
@@ -118,7 +120,18 @@ export function createLocalTrack() {
       mediaStreamTrack.readyState = 'ended';
     }),
     unmute: vi.fn(async () => {
+      // Like LiveKit's unmute: reacquires the mic for a device chosen while muted or a stopped track.
+      if (track.pendingDeviceId !== undefined || mediaStreamTrack.readyState === 'ended') {
+        track.deviceId = track.pendingDeviceId ?? track.deviceId;
+        track.pendingDeviceId = undefined;
+        Object.assign(mediaStreamTrack, { enabled: true, readyState: 'live' });
+        track.emit('restarted');
+      }
+
+      // Like LiveKit's setTrackMuted: enables the mic, then emits.
       track.isMuted = false;
+      track.mediaStreamTrack.enabled = true;
+      track.emit('unmuted');
     }),
   };
 

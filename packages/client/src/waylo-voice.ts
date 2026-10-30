@@ -13,6 +13,7 @@ import {
   supportsAudioOutputSelection,
   Track,
   TrackEvent,
+  type TrackPublication,
 } from 'livekit-client';
 
 import { abortable } from './abortable.js';
@@ -109,6 +110,7 @@ export class WayloVoice {
   readonly #cleanups: (() => void)[] = [];
   readonly #timer = new CallTimer();
   #deviceChanges: Promise<void> = Promise.resolve();
+  #muteCalls: Promise<void> = Promise.resolve();
   #microphoneChoice: string | undefined;
   #phase: CallPhase = 'idle';
   #state: WayloVoiceState = INITIAL_STATE;
@@ -199,15 +201,45 @@ export class WayloVoice {
     this.#events.off(event, listener);
   }
 
-  /** Mutes or unmutes the mic, even before `start()`; unmuting can reject with a mic error. */
+  /**
+   * Mutes or unmutes the mic, even before `start()`. The last call wins; it resolves once the mic
+   * matches it. Unmuting can reject with a mic error.
+   */
   async setMuted(muted: boolean): Promise<void> {
     if (typeof muted !== 'boolean') throw new RangeError('muted must be a boolean.');
-    if (this.#ending || muted === this.#muted) return;
+    if (this.#ending) return;
+    this.#muted = muted;
     const room = this.#room;
-    const track = room && microphoneTrack(room);
 
-    if (!room || !track) {
-      this.#muted = muted;
+    // Without a published mic, the flag applies when it is published.
+    if (!room || !microphoneTrack(room)) return;
+
+    await this.#requestMuted(room, muted);
+  }
+
+  // A mute never waits for a device switch: a mic LiveKit restarts meanwhile comes up disabled.
+  // An unmute does, so it never reopens the mic alongside a switch.
+  #requestMuted(room: Room, muted: boolean): Promise<void> {
+    const apply = () => this.#queueMuteCall(room);
+
+    return muted ? apply() : this.#queueChange(apply);
+  }
+
+  // One LiveKit mute or unmute at a time, each applying the latest request.
+  #queueMuteCall(room: Room): Promise<void> {
+    const applied = this.#muteCalls.then(() => this.#applyMuted(room));
+
+    this.#muteCalls = applied.catch(() => undefined);
+
+    return applied;
+  }
+
+  async #applyMuted(room: Room): Promise<void> {
+    const muted = this.#muted;
+    const track = microphoneTrack(room);
+
+    if (this.#ending || !track || track.isMuted === muted) {
+      this.#syncMicrophone(room);
 
       return;
     }
@@ -217,14 +249,13 @@ export class WayloVoice {
     try {
       await room.localParticipant.setMicrophoneEnabled(!muted);
     } catch (error) {
+      if (this.#muted === muted) this.#muted = !muted;
       // An unmute that opens a mic chosen while muted fails after LiveKit stopped the old one.
       if (!this.#ending && previous) await reopenMicrophone(room, previous);
-      this.#syncMicrophone(room);
       throw toMicrophoneError(error, []);
+    } finally {
+      this.#syncMicrophone(room);
     }
-
-    this.#muted = muted;
-    this.#syncMicrophone(room);
   }
 
   /**
@@ -292,6 +323,9 @@ export class WayloVoice {
     const previous = room.getActiveDevice('audioinput') ?? 'default';
 
     try {
+      // A restart attaches the new mic to the sender before disabling it. A muted LiveKit track
+      // only keeps the device for the next unmute, so let a queued mute land first.
+      if (this.#muted) await this.#muteCalls;
       // Exact: Chrome ignores a preferred device id when it can open the default one.
       await room.switchActiveDevice('audioinput', deviceId);
     } catch (error) {
@@ -511,11 +545,20 @@ export class WayloVoice {
 
     const onRestarted = () => this.#syncMicrophone(room);
 
+    const onUnmuted = () => {
+      // LiveKit enables the mic as its unmute ends; a mute pressed meanwhile is queued behind it.
+      const unmuted = microphoneTrack(room);
+
+      if (this.#muted && unmuted) unmuted.mediaStreamTrack.enabled = false;
+    };
+
     track.on(TrackEvent.Ended, onEnded);
     track.on(TrackEvent.Restarted, onRestarted);
+    track.on(TrackEvent.Unmuted, onUnmuted);
     this.#cleanups.push(() => {
       track.off(TrackEvent.Ended, onEnded);
       track.off(TrackEvent.Restarted, onRestarted);
+      track.off(TrackEvent.Unmuted, onUnmuted);
     });
   }
 
@@ -566,6 +609,7 @@ export class WayloVoice {
     });
     this.#addRoomListener(room, RoomEvent.Reconnected, () => {
       if (this.#phase === 'active') this.#updateState({ connection: 'connected' });
+      this.#resyncMicrophone(room);
     });
     this.#addRoomListener(room, RoomEvent.Disconnected, reason => {
       this.#onDisconnected(reason);
@@ -610,6 +654,20 @@ export class WayloVoice {
       if (kind === 'audioinput') this.#updateState({ microphoneDeviceId: deviceId });
       if (kind === 'audiooutput') this.#updateState({ speakerDeviceId: deviceId });
     });
+
+    const isMicrophone = (publication: TrackPublication, participant: Participant) =>
+      participant === room.localParticipant && publication.source === Track.Source.Microphone;
+
+    const sync = (publication: TrackPublication, participant: Participant) => {
+      if (isMicrophone(publication, participant)) this.#syncMicrophone(room);
+    };
+
+    this.#addRoomListener(room, RoomEvent.LocalTrackPublished, (publication, participant) => {
+      if (isMicrophone(publication, participant)) this.#resyncMicrophone(room);
+    });
+    this.#addRoomListener(room, RoomEvent.LocalTrackUnpublished, sync);
+    this.#addRoomListener(room, RoomEvent.TrackMuted, sync);
+    this.#addRoomListener(room, RoomEvent.TrackUnmuted, sync);
   }
 
   #addRoomListener<E extends keyof RoomEventCallbacks>(
@@ -713,11 +771,23 @@ export class WayloVoice {
     this.#updateState({ agent: agent ? toAgentState(agent.attributes) : 'none' });
   }
 
+  // Reads the published track, never the requested flag, so the state can't claim a mute LiveKit lacks.
   #syncMicrophone(room: Room): void {
     const track = microphoneTrack(room);
     const isLive = track?.mediaStreamTrack.readyState === 'live';
 
-    this.#updateState({ microphone: isLive ? (this.#muted ? 'muted' : 'on') : 'off' });
+    this.#updateState({ microphone: isLive ? (track.isMuted ? 'muted' : 'on') : 'off' });
+  }
+
+  // A full reconnect unpublishes, restarts and republishes the mic; a mute pressed meanwhile waits.
+  #resyncMicrophone(room: Room): void {
+    const track = microphoneTrack(room);
+
+    this.#syncMicrophone(room);
+    if (this.#phase !== 'active' || !track || track.isMuted === this.#muted) return;
+    this.#requestMuted(room, this.#muted).catch((error: unknown) =>
+      this.#emitError(toWayloVoiceError(error, [])),
+    );
   }
 
   #syncPlayback(room: Room): void {

@@ -1,3 +1,4 @@
+import { DataStreamError, DataStreamErrorReason } from 'livekit-client';
 import { describe, expect, it } from 'vitest';
 
 import { activeCall } from './__setup__/active-call.js';
@@ -10,6 +11,13 @@ const AGENT = 'agent';
 
 function partial(segment: string, final = 'false') {
   return { 'lk.segment_id': segment, 'lk.transcription_final': final };
+}
+
+function senderLeft() {
+  return new DataStreamError(
+    'Participant agent unexpectedly disconnected in the middle of sending data',
+    DataStreamErrorReason.AbnormalEnd,
+  );
 }
 
 describe('transcripts', () => {
@@ -78,6 +86,65 @@ describe('transcripts', () => {
     expect(errors.map(error => error.code)).toEqual(['TRANSCRIPT_FAILED']);
     expect(lines.some(line => line.final)).toBe(false);
     expect(call.getState().connection).toBe('connected');
+  });
+
+  it('keeps the text of a line cut off by a reconnect and finalizes it, with no error', async () => {
+    const { call, errors, lines, room } = await activeCall();
+    const stream = createTextStream('ST_A', partial('SG_A'));
+
+    room.streamText(stream, AGENT);
+    stream.push('Our menu has ');
+    stream.push('three pizzas');
+    stream.fail(senderLeft());
+    await flush();
+    expect(errors).toEqual([]);
+    expect(lines.at(-1)).toEqual({
+      final: true,
+      id: 'session-1:agent:SG_A',
+      speaker: 'agent',
+      text: 'Our menu has three pizzas',
+    });
+    expect(call.getState().connection).toBe('connected');
+  });
+
+  it('matches a cut-off error from another livekit-client copy by name and reason', async () => {
+    const { errors, lines, room } = await activeCall();
+    const stream = createTextStream('ST_A', partial('SG_A'));
+    const foreign = Object.assign(new Error('cut'), {
+      name: 'DataStreamError',
+      reason: DataStreamErrorReason.AbnormalEnd,
+    });
+
+    room.streamText(stream, AGENT);
+    stream.push('Half a');
+    stream.fail(foreign);
+    await flush();
+    expect(errors).toEqual([]);
+    expect(lines.at(-1)).toMatchObject({ final: true, text: 'Half a' });
+  });
+
+  it('emits nothing for a stream cut off before any text', async () => {
+    const { errors, lines, room } = await activeCall();
+    const stream = createTextStream('ST_A', partial('SG_A'));
+
+    room.streamText(stream, AGENT);
+    stream.fail(senderLeft());
+    await flush();
+    expect(errors).toEqual([]);
+    expect(lines).toEqual([]);
+  });
+
+  it('still reports TRANSCRIPT_FAILED for other stream errors', async () => {
+    const { errors, lines, room } = await activeCall();
+    const stream = createTextStream('ST_A', partial('SG_A'));
+    const missing = new DataStreamError('Missing chunk(s) 1..1', DataStreamErrorReason.Incomplete);
+
+    room.streamText(stream, AGENT);
+    stream.push('Half a');
+    stream.fail(missing);
+    await flush();
+    expect(errors.map(error => error.code)).toEqual(['TRANSCRIPT_FAILED']);
+    expect(lines.some(line => line.final)).toBe(false);
   });
 
   it('ignores updates for a line that is already final', async () => {

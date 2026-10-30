@@ -1,4 +1,4 @@
-import type { Room, TextStreamReader } from 'livekit-client';
+import { DataStreamErrorReason, type Room, type TextStreamReader } from 'livekit-client';
 
 import { WayloVoiceError } from './errors.js';
 import type { WayloVoiceTranscript } from './state.js';
@@ -11,6 +11,16 @@ export interface TranscriptHandlers {
   getSessionId(): string | undefined;
   onError(error: WayloVoiceError): void;
   onTranscript(line: WayloVoiceTranscript): void;
+}
+
+// LiveKit ends open streams with AbnormalEnd when the sender leaves, including during a full
+// reconnect. Checked by name and reason so a second livekit-client copy still matches.
+function isCutOff(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === 'DataStreamError' &&
+    (error as { reason?: unknown }).reason === DataStreamErrorReason.AbnormalEnd
+  );
 }
 
 /** Reads LiveKit's native transcription streams. Register before connect so no line is missed. */
@@ -31,6 +41,7 @@ export function listenToTranscripts(
     const id = `${handlers.getSessionId() ?? ''}:${identity}:${segment}`;
     const speaker = identity === room.localParticipant.identity ? 'user' : 'agent';
     let text = '';
+    let cutOff = false;
 
     try {
       for await (const chunk of reader.withAbortSignal(signal)) {
@@ -39,14 +50,22 @@ export function listenToTranscripts(
         handlers.onTranscript({ final: false, id, speaker, text });
       }
     } catch (error) {
-      if (!signal.aborted) handlers.onError(new WayloVoiceError('TRANSCRIPT_FAILED', error));
+      if (signal.aborted) return;
 
-      return;
+      if (!isCutOff(error)) {
+        handlers.onError(new WayloVoiceError('TRANSCRIPT_FAILED', error));
+
+        return;
+      }
+
+      cutOff = true;
     }
 
-    // The final marker may arrive only in the stream trailer, merged in when the stream ends.
-    if (signal.aborted || finals.has(id) || reader.info.attributes?.[FINAL_ATTRIBUTE] !== 'true')
-      return;
+    // A cut-off line keeps what arrived. Otherwise the final marker may arrive only in the stream
+    // trailer, merged in when the stream ends.
+    const final = cutOff ? text !== '' : reader.info.attributes?.[FINAL_ATTRIBUTE] === 'true';
+
+    if (signal.aborted || finals.has(id) || !final) return;
     finals.add(id);
     handlers.onTranscript({ final: true, id, speaker, text });
   }

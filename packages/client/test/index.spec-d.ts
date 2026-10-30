@@ -177,6 +177,7 @@ describe('public API', () => {
       | 'AUTH_REQUIRED'
       | 'CANCELLED'
       | 'CONNECTION_FAILED'
+      | 'CONNECTION_LOST'
       | 'INVALID_SESSION'
       | 'LIMIT_REACHED'
       | 'MICROPHONE_DENIED'

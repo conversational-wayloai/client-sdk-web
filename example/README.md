@@ -105,7 +105,8 @@ Errors from the SDK (`WayloVoiceError.code`):
 | `LIMIT_REACHED` | The session endpoint answered `429`. Wait and try again. |
 | `INVALID_SESSION` | Check that `/api/waylo/session` returns the Waylo API response unchanged. |
 | `SESSION_EXPIRED` | The session expired. Click **Talk** again. |
-| `CONNECTION_FAILED` | The session endpoint failed, could not be reached or did not answer within 15 s, or the call dropped. Check the server terminal and your network. |
+| `CONNECTION_FAILED` | The session endpoint failed, could not be reached or did not answer within 15 s, the call could not connect, or the call server ended it with an error. Check the server terminal and your network. |
+| `CONNECTION_LOST` | Your connection dropped mid-call and could not be restored. Check your network and click **Talk** again. |
 | `MICROPHONE_DENIED` | Allow microphone access in the browser and try again. |
 | `MICROPHONE_IN_USE` | Close other apps or tabs using the microphone, and try again. |
 | `MICROPHONE_UNAVAILABLE` | Connect a microphone and try again. Mid-call, this means no microphone, not even the system default, could be opened. The error's `cause` says what the browser reported. |

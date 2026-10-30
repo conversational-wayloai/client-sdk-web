@@ -89,8 +89,10 @@ export interface WayloVoiceOptions {
 }
 
 const DEFAULT_AGENT_TIMEOUT_MS = 20_000;
+const RECONNECT_AGENT_TIMEOUT_MS = 5000;
 const AGENT_LEFT = 'Agent left the room unexpectedly.';
 const ROOM_DISCONNECTED = 'Room disconnected.';
+const NO_AGENT_AFTER_RECONNECT = 'No agent in the room after reconnecting.';
 
 let inspectInternals: (call: WayloVoice) => CallInspection;
 
@@ -135,7 +137,9 @@ export class WayloVoice {
   #agent: RemoteParticipant | undefined;
   #outcome: SessionOutcome | null = null;
   #isConnected = false;
+  #isReconnecting = false;
   #startAbort: AbortController | undefined;
+  #agentCheck: AbortController | undefined;
   #startSettled: Promise<void> | undefined;
   #stopPromise: Promise<void> | undefined;
   #releasePromise: Promise<void> | undefined;
@@ -723,13 +727,21 @@ export class WayloVoice {
 
   #listenToConnection(room: Room): void {
     this.#addRoomListener(room, RoomEvent.Reconnecting, () => {
+      this.#isReconnecting = true;
+      this.#cancelAgentCheck();
       if (this.#phase === 'active') this.#updateState({ connection: 'reconnecting' });
     });
+    this.#addRoomListener(room, RoomEvent.SignalReconnecting, () => {
+      this.#isReconnecting = true;
+    });
     this.#addRoomListener(room, RoomEvent.Reconnected, () => {
+      this.#isReconnecting = false;
       if (this.#phase === 'active') this.#updateState({ connection: 'connected' });
       this.#resyncMicrophone(room);
+      this.#checkAgentAfterReconnect(room).catch(() => undefined);
     });
     this.#addRoomListener(room, RoomEvent.Disconnected, reason => {
+      this.#cancelAgentCheck();
       this.#onDisconnected(reason);
     });
     this.#addRoomListener(room, RoomEvent.ConnectionQualityChanged, (quality, participant) => {
@@ -759,7 +771,13 @@ export class WayloVoice {
       if (participant.identity !== this.#agent?.identity) return;
       // A full reconnect also reports every participant as disconnected, then switches the room
       // to reconnecting in the same tick. Looking one microtask later tells the two apart.
-      queueMicrotask(() => this.#onAgentLeft(room, participant, reason));
+      queueMicrotask(() =>
+        this.#onAgentLeft(
+          room,
+          participant,
+          new WayloVoiceError('AGENT_LEFT', disconnectCause(AGENT_LEFT, reason)),
+        ),
+      );
     });
   }
 
@@ -804,17 +822,46 @@ export class WayloVoice {
     this.#cleanups.push(() => room.off(event, handler));
   }
 
-  #onAgentLeft(room: Room, agent: RemoteParticipant, reason: DisconnectReason | undefined): void {
+  // A full rejoin after LiveKit closed the room lands in a new, empty room; the agent is gone for good.
+  async #checkAgentAfterReconnect(room: Room): Promise<void> {
+    this.#cancelAgentCheck();
+    if (this.#phase !== 'active') return;
+    this.#syncAgent(room);
+    if (findAgent(room)) return;
+
+    const check = new AbortController();
+
+    this.#agentCheck = check;
+
+    try {
+      this.#agent = await waitForAgent(room, RECONNECT_AGENT_TIMEOUT_MS, check.signal);
+      this.#syncAgent(room);
+    } catch {
+      if (check.signal.aborted || findAgent(room)) return;
+      this.#onAgentLeft(
+        room,
+        this.#agent,
+        new WayloVoiceError('CONNECTION_LOST', new Error(NO_AGENT_AFTER_RECONNECT)),
+      );
+    } finally {
+      if (this.#agentCheck === check) this.#agentCheck = undefined;
+    }
+  }
+
+  #cancelAgentCheck(): void {
+    this.#agentCheck?.abort();
+    this.#agentCheck = undefined;
+  }
+
+  #onAgentLeft(room: Room, agent: RemoteParticipant | undefined, fallback: WayloVoiceError): void {
     if (this.#phase !== 'active' || room.state !== ConnectionState.Connected) return;
-    const outcome = this.#outcome ?? readSessionOutcome(agent.attributes);
+    this.#cancelAgentCheck();
+    const outcome = this.#outcome ?? readSessionOutcome(agent?.attributes);
 
     if (decideAgentLeft(outcome) === 'end') {
       this.#end(outcome?.endReason);
     } else {
-      this.#failFromOutcome(
-        outcome,
-        new WayloVoiceError('AGENT_LEFT', disconnectCause(AGENT_LEFT, reason)),
-      );
+      this.#failFromOutcome(outcome, fallback);
     }
   }
 
@@ -822,6 +869,7 @@ export class WayloVoice {
     const outcome = this.#outcome ?? readSessionOutcome(this.#agent?.attributes);
     const decision = decideDisconnect({
       isConnected: this.#isConnected,
+      isReconnecting: this.#isReconnecting,
       outcome,
       phase: this.#phase,
       reason,
@@ -838,6 +886,9 @@ export class WayloVoice {
         this.#failFromOutcome(outcome, connectionFailed(reason));
         break;
       case 'ignore':
+        break;
+      case 'lose':
+        this.#failFromOutcome(outcome, connectionLost(reason));
         break;
     }
   }
@@ -879,6 +930,7 @@ export class WayloVoice {
   async #disconnectRoom(): Promise<void> {
     const room = this.#room;
 
+    this.#cancelAgentCheck();
     this.#transcriptAbort.abort();
     if (!room) return;
     this.#audio.clear();
@@ -1021,6 +1073,10 @@ function completedEnd(reason?: SessionEndReason): WayloVoiceEnd {
 
 function connectionFailed(reason: DisconnectReason | undefined): WayloVoiceError {
   return new WayloVoiceError('CONNECTION_FAILED', disconnectCause(ROOM_DISCONNECTED, reason));
+}
+
+function connectionLost(reason: DisconnectReason | undefined): WayloVoiceError {
+  return new WayloVoiceError('CONNECTION_LOST', disconnectCause(ROOM_DISCONNECTED, reason));
 }
 
 function failedEnd(error: WayloVoiceError, reason?: SessionEndReason): WayloVoiceEnd {

@@ -145,7 +145,7 @@ describe('WayloVoice', () => {
       };
 
       await createCall().start(START);
-      expect(listenersAtConnect).toBe(16);
+      expect(listenersAtConnect).toBe(17);
       expect(lastRoom().registerTextStreamHandler).toHaveBeenCalledWith(
         'lk.transcription',
         expect.any(Function),
@@ -617,7 +617,7 @@ describe('WayloVoice', () => {
       ].join('\n');
 
       expect(result).toBeUndefined();
-      expect(end).toMatchObject({ error: { code: 'CONNECTION_FAILED' }, status: 'failed' });
+      expect(end).toMatchObject({ error: { code: 'CONNECTION_LOST' }, status: 'failed' });
       expect(publicOutput()).toContain('Hello');
 
       for (const secret of secrets) expect(surfaces).not.toContain(secret);

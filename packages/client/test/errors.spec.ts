@@ -20,6 +20,7 @@ describe('WAYLO_VOICE_ERROR_CODES', () => {
       'AUTH_REQUIRED',
       'CANCELLED',
       'CONNECTION_FAILED',
+      'CONNECTION_LOST',
       'INVALID_SESSION',
       'LIMIT_REACHED',
       'MICROPHONE_DENIED',

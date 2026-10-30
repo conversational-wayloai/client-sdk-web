@@ -1,6 +1,7 @@
 import { DisconnectReason } from 'livekit-client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { MIN_SHOWN_MS } from '../../src/connection-monitor.js';
 import { ERROR_DISCONNECT_REASONS, LOST_DISCONNECT_REASONS } from '../../src/session-outcome.js';
 import { inspectCall } from '../../src/waylo-voice.js';
 import { activeCall } from '../__setup__/active-call.js';
@@ -27,7 +28,7 @@ async function rejoinWithoutAgent() {
   room.state = 'reconnecting';
   room.emit('reconnecting');
   room.removeParticipant('agent');
-  await flush();
+  await vi.advanceTimersByTimeAsync(MIN_SHOWN_MS);
   room.state = 'connected';
   room.emit('reconnected');
   await flush();

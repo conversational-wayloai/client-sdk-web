@@ -190,6 +190,8 @@ export function toNetwork(quality: ConnectionQuality): WayloVoiceNetwork | undef
   }
 }
 
+const NETWORK_RANK: Readonly<Record<WayloVoiceNetwork, number>> = { good: 0, lost: 2, poor: 1 };
+
 export function toStage(
   state: WayloVoiceState,
   previous: WayloVoiceStage,
@@ -210,4 +212,8 @@ export function toStage(
 
       return hasAgentSpoken ? state.agent : 'preparing';
   }
+}
+
+export function worseNetwork(a: WayloVoiceNetwork, b: WayloVoiceNetwork): WayloVoiceNetwork {
+  return NETWORK_RANK[b] > NETWORK_RANK[a] ? b : a;
 }

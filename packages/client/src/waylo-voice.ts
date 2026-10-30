@@ -19,6 +19,12 @@ import {
 import { abortable } from './abortable.js';
 import { findAgent, waitForAgent } from './agent.js';
 import {
+  type ConnectionHealth,
+  ConnectionMonitor,
+  type ConnectionStats,
+  readConnectionStats,
+} from './connection-monitor.js';
+import {
   DEFAULT_DEVICE_ID,
   enumerateMediaDevices,
   findDefaultDevice,
@@ -59,8 +65,10 @@ import {
   type WayloVoiceEnd,
   type WayloVoiceEvents,
   type WayloVoiceListDevicesOptions,
+  type WayloVoiceNetwork,
   type WayloVoiceState,
   type WayloVoiceTranscript,
+  worseNetwork,
 } from './state.js';
 import { agentStepsReached, CallTimer, type TimingStep } from './timings.js';
 import { listenToTranscripts, TRANSCRIPTION_TOPIC } from './transcripts.js';
@@ -90,9 +98,13 @@ export interface WayloVoiceOptions {
 
 const DEFAULT_AGENT_TIMEOUT_MS = 20_000;
 const RECONNECT_AGENT_TIMEOUT_MS = 5000;
+
+// LiveKit's server score can dip for a moment on a tiny blip; only a dip that lasts is shown.
+export const POOR_QUALITY_AFTER_MS = 2000;
 const AGENT_LEFT = 'Agent left the room unexpectedly.';
 const ROOM_DISCONNECTED = 'Room disconnected.';
 const NO_AGENT_AFTER_RECONNECT = 'No agent in the room after reconnecting.';
+const RECONNECTING_TOO_LONG = 'Reconnecting took too long.';
 
 let inspectInternals: (call: WayloVoice) => CallInspection;
 
@@ -138,6 +150,11 @@ export class WayloVoice {
   #outcome: SessionOutcome | null = null;
   #isConnected = false;
   #isReconnecting = false;
+  #quality: WayloVoiceNetwork = 'good';
+  #pendingQuality: WayloVoiceNetwork = 'good';
+  #qualityTimer: ReturnType<typeof setTimeout> | undefined;
+  #health: ConnectionHealth = { isReconnecting: false, isUnstable: false };
+  #monitor: ConnectionMonitor | undefined;
   #startAbort: AbortController | undefined;
   #agentCheck: AbortController | undefined;
   #startSettled: Promise<void> | undefined;
@@ -729,14 +746,15 @@ export class WayloVoice {
     this.#addRoomListener(room, RoomEvent.Reconnecting, () => {
       this.#isReconnecting = true;
       this.#cancelAgentCheck();
-      if (this.#phase === 'active') this.#updateState({ connection: 'reconnecting' });
+      this.#monitor?.reconnecting();
     });
     this.#addRoomListener(room, RoomEvent.SignalReconnecting, () => {
       this.#isReconnecting = true;
+      this.#monitor?.signalReconnecting();
     });
     this.#addRoomListener(room, RoomEvent.Reconnected, () => {
       this.#isReconnecting = false;
-      if (this.#phase === 'active') this.#updateState({ connection: 'connected' });
+      this.#monitor?.reconnected();
       this.#resyncMicrophone(room);
       this.#checkAgentAfterReconnect(room).catch(() => undefined);
     });
@@ -747,8 +765,65 @@ export class WayloVoice {
     this.#addRoomListener(room, RoomEvent.ConnectionQualityChanged, (quality, participant) => {
       const network = toNetwork(quality);
 
-      if (network && participant === room.localParticipant) this.#updateState({ network });
+      if (!network || participant !== room.localParticipant) return;
+      this.#onQuality(network);
     });
+    this.#cleanups.push(() => clearTimeout(this.#qualityTimer));
+  }
+
+  #onQuality(network: WayloVoiceNetwork): void {
+    this.#pendingQuality = network;
+
+    if (network === 'good' || this.#quality !== 'good') {
+      clearTimeout(this.#qualityTimer);
+      this.#qualityTimer = undefined;
+      this.#quality = network;
+      this.#syncNetwork();
+
+      return;
+    }
+
+    this.#qualityTimer ??= setTimeout(() => {
+      this.#qualityTimer = undefined;
+      this.#quality = this.#pendingQuality;
+      this.#syncNetwork();
+    }, POOR_QUALITY_AFTER_MS);
+  }
+
+  #watchConnection(room: Room): void {
+    const monitor = new ConnectionMonitor({
+      onChange: health => {
+        this.#health = health;
+        this.#syncNetwork();
+      },
+      onGiveUp: () => {
+        if (this.#phase !== 'active') return;
+        this.#fail(new WayloVoiceError('CONNECTION_LOST', new Error(RECONNECTING_TOO_LONG))).catch(
+          () => undefined,
+        );
+      },
+      readStats: () => connectionStats(room),
+    });
+
+    this.#monitor = monitor;
+    monitor.start();
+    this.#cleanups.push(() => {
+      monitor.stop();
+      this.#monitor = undefined;
+    });
+  }
+
+  #syncNetwork(): void {
+    const { isReconnecting, isUnstable } = this.#health;
+    const network = worseNetwork(this.#quality, isUnstable || isReconnecting ? 'poor' : 'good');
+
+    if (this.#phase !== 'active') {
+      this.#updateState({ network });
+
+      return;
+    }
+
+    this.#updateState({ connection: isReconnecting ? 'reconnecting' : 'connected', network });
   }
 
   #listenToAgent(room: Room): void {
@@ -1051,7 +1126,10 @@ export class WayloVoice {
       this.#updateState({ connection: 'connecting', timings: this.#timer.start() });
     }
 
-    if (phase === 'active') this.#updateState({ connection: 'connected' });
+    if (phase === 'active') {
+      this.#updateState({ connection: 'connected' });
+      if (this.#room) this.#watchConnection(this.#room);
+    }
   }
 }
 
@@ -1077,6 +1155,26 @@ function connectionFailed(reason: DisconnectReason | undefined): WayloVoiceError
 
 function connectionLost(reason: DisconnectReason | undefined): WayloVoiceError {
   return new WayloVoiceError('CONNECTION_LOST', disconnectCause(ROOM_DISCONNECTED, reason));
+}
+
+async function connectionStats(room: Room): Promise<ConnectionStats[]> {
+  const sources: [string, Track | undefined][] = [['publisher', microphoneTrack(room)]];
+
+  for (const participant of room.remoteParticipants.values()) {
+    for (const publication of participant.trackPublications.values()) {
+      sources.push(['subscriber', publication.track]);
+    }
+  }
+
+  const stats = await Promise.all(
+    sources.map(async ([source, track]) => {
+      const report = await track?.getRTCStatsReport().catch(() => undefined);
+
+      return report ? readConnectionStats(report, source) : null;
+    }),
+  );
+
+  return stats.filter(stat => stat !== null);
 }
 
 function failedEnd(error: WayloVoiceError, reason?: SessionEndReason): WayloVoiceEnd {

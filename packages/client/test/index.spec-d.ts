@@ -31,6 +31,7 @@ describe('public API', () => {
     expectTypeOf<typeof PublicApi>().not.toHaveProperty('decideDisconnect');
     expectTypeOf<typeof PublicApi>().not.toHaveProperty('WAYLO_VOICE_ERROR_CODES');
     expectTypeOf<typeof PublicApi>().not.toHaveProperty('fetchSession');
+    expectTypeOf<typeof PublicApi>().not.toHaveProperty('ConnectionMonitor');
   });
 
   it('does not export WebSessionBootstrap', () => {

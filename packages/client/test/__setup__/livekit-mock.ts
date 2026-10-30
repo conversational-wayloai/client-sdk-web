@@ -1,6 +1,6 @@
 import { beforeEach, vi } from 'vitest';
 
-import { analysers, stubMediaDevices } from './fake-media.js';
+import { analysers, resetFakeNetwork, stubMediaDevices } from './fake-media.js';
 import { resetBehavior } from './fake-room.js';
 import { fetchMock, resetSessionEndpoint } from './fake-session-endpoint.js';
 
@@ -20,6 +20,7 @@ vi.mock('livekit-client', async importOriginal => {
 beforeEach(() => {
   resetBehavior();
   analysers.length = 0;
+  resetFakeNetwork();
   stubMediaDevices(undefined);
   resetSessionEndpoint();
   vi.stubGlobal('fetch', fetchMock);

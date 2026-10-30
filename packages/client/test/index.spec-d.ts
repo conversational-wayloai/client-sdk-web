@@ -117,6 +117,7 @@ describe('public API', () => {
       readonly agentReadyMs?: number;
       readonly agentSpeakingMs?: number;
       readonly connectedMs?: number;
+      readonly microphoneOpenMs?: number;
       readonly microphoneReadyMs?: number;
       readonly sessionReadyMs?: number;
       readonly startedAt: number;

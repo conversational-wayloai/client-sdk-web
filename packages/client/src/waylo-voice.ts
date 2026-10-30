@@ -530,6 +530,7 @@ export class WayloVoice {
 
       microphone = openMicrophone(room, requested);
       microphone.catch((error: unknown) => startAbort.abort(error));
+      microphone.then(() => this.#markTiming('microphoneOpenMs')).catch(() => undefined);
       const session = await this.#openSession(request, signal);
 
       secrets = secretsFrom(session);

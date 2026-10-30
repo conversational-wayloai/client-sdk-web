@@ -38,8 +38,9 @@ type TimingStep = Exclude<keyof WayloVoiceTimings, 'startedAt'>;
 // Label, the mark it starts at (unset: the click) and the mark it ends at.
 const STARTUP_STEPS: readonly (readonly [string, TimingStep | undefined, TimingStep])[] = [
   ['Create session', undefined, 'sessionReadyMs'],
-  ['Join call', 'sessionReadyMs', 'connectedMs'],
-  ['Turn on mic', undefined, 'microphoneReadyMs'],
+  // Ends once the visitor's audio is live in the call, not when the room connects.
+  ['Join call', 'sessionReadyMs', 'microphoneReadyMs'],
+  ['Turn on mic', undefined, 'microphoneOpenMs'],
   ['Agent ready', 'connectedMs', 'agentReadyMs'],
   ['Agent starts talking', 'agentReadyMs', 'agentSpeakingMs'],
 ];
@@ -315,6 +316,7 @@ function resetCallView(): void {
   startedAt = undefined;
   timerText.textContent = '';
   startup.hidden = true;
+  startupTotal.textContent = '';
   endSummary.hidden = true;
   setupHint = undefined;
   showError('');

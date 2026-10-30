@@ -30,6 +30,7 @@ const TIMING_FIELDS: Record<keyof WayloVoiceTimings, true> = {
   agentReadyMs: true,
   connectedMs: true,
   agentSpeakingMs: true,
+  microphoneOpenMs: true,
   microphoneReadyMs: true,
   sessionReadyMs: true,
   startedAt: true,

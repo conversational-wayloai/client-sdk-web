@@ -120,7 +120,9 @@ export interface WayloVoiceTimings {
   readonly agentSpeakingMs?: number;
   /** This browser joined the call. */
   readonly connectedMs?: number;
-  /** The microphone is live in the call; it opens, permission prompt included, while the call connects. */
+  /** The browser opened the microphone, permission prompt included; often before the call connects. */
+  readonly microphoneOpenMs?: number;
+  /** The microphone is live in the call, so the agent can hear the visitor. */
   readonly microphoneReadyMs?: number;
   /** The session endpoint answered. */
   readonly sessionReadyMs?: number;

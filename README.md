@@ -126,7 +126,7 @@ if (canChooseSpeaker && speaker) await wayloVoice.setSpeakerDevice(speaker.devic
 
 ## Your session endpoint
 
-You build this route on your own backend. It checks your own login, then creates a session with the Waylo API using an API key that has the `sessions:create` scope and is pinned to your workspace. The key never leaves your server.
+You build this route on your own backend. It checks your own login, then creates a session with the Waylo API using an API key that has the `sessions:write` scope and is pinned to your workspace. The key never leaves your server.
 
 **What the SDK sends.** One `POST {sessionEndpoint}` per `start()` with JSON `{ "agentId": string, "metadata"?: object }`, your site's cookies and any `headers` you configured. No `Idempotency-Key`, no retry; `stop()` aborts it.
 

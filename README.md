@@ -136,7 +136,7 @@ The package includes `llms.txt` (`node_modules/@waylovoice/client/llms.txt`): th
 
 ## Security
 
-- Your Waylo API key stays on your server. The browser only receives a short-lived session.
+- Your Waylo API key stays on your server. The browser only receives a short lived session.
 - In your session endpoint, check the visitor's login, their permission to use the agent and CSRF (another site making the visitor's browser call your endpoint).
 - `metadata` comes from the browser, so forward only the keys you expect.
 - Report security problems privately through [GitHub's vulnerability reporting](https://github.com/conversational-wayloai/client-sdk-web/security/advisories/new), not in a public issue.

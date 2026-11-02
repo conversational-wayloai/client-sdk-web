@@ -4,7 +4,7 @@ Publishing a GitHub release runs [`release.yml`](.github/workflows/release.yml),
 
 ## Release a version
 
-1. In a pull request, set `version` in `packages/client/package.json` and add its entry to `packages/client/CHANGELOG.md`.
+1. In a pull request, set `version` in `packages/client/package.json`. In `packages/client/CHANGELOG.md`, move the `[Unreleased]` entries under a new `## [<version>] - <YYYY-MM-DD>` heading and update the compare links at the bottom.
 2. Run `pnpm validate` and `pnpm test:pack`. Then run `pnpm pack:client` and `tar tzf packages/client/waylovoice-client-<version>.tgz`, and check the file list: `dist`, `llms.txt`, `README.md`, `LICENSE` and `package.json`.
 3. Merge the pull request.
 4. On GitHub, create a release from `main` with the tag `v<version>` (for example `v0.1.2`) and the changelog entry as its notes.

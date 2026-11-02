@@ -4,3 +4,5 @@ coverage
 *.tgz
 .env
 .eslintcache
+packages/client/README.md
+packages/client/LICENSE

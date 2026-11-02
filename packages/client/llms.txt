@@ -17,7 +17,7 @@ Rules an assistant must follow:
 pnpm add @waylovoice/client
 ```
 
-Until it is published, install the packed tarball: `pnpm add ./waylovoice-client-<version>.tgz`. The page code needs a bundler (Vite, esbuild, webpack…) to resolve the import.
+The page code needs a bundler (Vite, esbuild, webpack…) to resolve the import.
 
 ## Backend: the session endpoint
 

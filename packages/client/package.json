@@ -1,7 +1,23 @@
 {
   "name": "@waylovoice/client",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
+  "description": "Browser SDK for voice calls with a Waylo voice agent",
+  "keywords": [
+    "waylo",
+    "voice",
+    "ai",
+    "agent",
+    "webrtc",
+    "sdk"
+  ],
+  "homepage": "https://conversational-wayloai.github.io/developer-docs/",
+  "bugs": "https://github.com/conversational-wayloai/client-sdk-web/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/conversational-wayloai/client-sdk-web.git",
+    "directory": "packages/client"
+  },
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -21,6 +37,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "cp ../../README.md ../../LICENSE .",
     "lint": "eslint --cache --fix .",
     "format": "prettier --write --log-level=warn --ignore-path ../../.prettierignore \"**/*.{yml,json,md}\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -39,5 +56,8 @@
     "prettier": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

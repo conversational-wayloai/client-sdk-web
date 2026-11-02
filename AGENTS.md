@@ -11,7 +11,7 @@ Rules for this repository: the Waylo Voice AI browser SDK, published as `@waylov
 
 ## Layout
 
-- `packages/client` — the SDK. `src/` is the code, `test/` mirrors it, `test/__setup__/` holds the shared LiveKit mock, fakes and fixtures.
+- `packages/client` — the SDK. `src/` is the code, `test/` mirrors it, `test/__setup__/` holds the shared LiveKit mock, fakes and fixtures. Packing copies the root `README.md` (the npm page) and `LICENSE` into it.
 - `example/` — a minimal page and Node server, a workspace member that uses the SDK through `workspace:*`. See [example/README.md](example/README.md).
 - `.github/workflows/ci.yml` — builds, validates, then runs `pnpm test:pack`.
 

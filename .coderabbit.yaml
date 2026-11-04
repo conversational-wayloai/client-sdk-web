@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+reviews:
+  # Report a failed review as a failed check so a required CodeRabbit check blocks the merge.
+  fail_commit_status: true
+  # Request changes on findings and approve once they are resolved.
+  request_changes_workflow: true
+  auto_review:
+    enabled: true
+    drafts: false

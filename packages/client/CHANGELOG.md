@@ -4,6 +4,10 @@ All notable changes to `@waylovoice/client` are listed here. The format follows 
 
 ## [Unreleased]
 
+### Changed
+
+- `homepage` points at https://docs.staging.app.waylovoice.ai.
+
 ## [0.1.1] - 2026-11-02
 
 First public release.

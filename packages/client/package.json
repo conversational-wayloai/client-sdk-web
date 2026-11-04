@@ -10,7 +10,7 @@
     "webrtc",
     "sdk"
   ],
-  "homepage": "https://conversational-wayloai.github.io/developer-docs/",
+  "homepage": "https://docs.staging.app.waylovoice.ai/",
   "bugs": "https://github.com/conversational-wayloai/client-sdk-web/issues",
   "repository": {
     "type": "git",

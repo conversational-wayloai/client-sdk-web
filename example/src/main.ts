@@ -27,9 +27,13 @@ const HINTS: Partial<Record<WayloVoiceErrorCode, string>> = {
 };
 
 const END_SENTENCES: Partial<Record<WayloVoiceEndReason, string>> = {
+  brain_error: "The agent's bot didn't reply.",
   caller_goodbye: 'Call ended after goodbye',
   caller_hangup: 'You ended the call',
   caller_inactive: 'Ended for inactivity',
+  caller_objected: 'Ended after you objected to AI or transcription',
+  client_end: 'The business ended the call',
+  disclosure_failed: "The agent couldn't play its opening notice.",
   max_duration: 'Reached the maximum duration',
 };
 
@@ -115,15 +119,17 @@ function describeChanges(before: WayloVoiceState, after: WayloVoiceState): strin
 }
 
 function describeEnd(end: WayloVoiceEnd): string {
-  if (end.status === 'failed') return describeError(end.error);
+  const sentence = end.reason && END_SENTENCES[end.reason];
 
-  return (end.reason && END_SENTENCES[end.reason]) ?? 'Call ended';
+  if (end.status === 'failed') return describeError(end.error, sentence);
+
+  return sentence ?? 'Call ended';
 }
 
-function describeError(error: unknown): string {
+function describeError(error: unknown, hint?: string): string {
   if (!(error instanceof WayloVoiceError)) return String(error);
 
-  return [error.message, HINTS[error.code], `(${error.code})`].filter(Boolean).join(' ');
+  return [error.message, hint ?? HINTS[error.code], `(${error.code})`].filter(Boolean).join(' ');
 }
 
 function deviceOptions(

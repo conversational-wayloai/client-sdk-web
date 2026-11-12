@@ -195,7 +195,7 @@ Lifecycle: a new instance's state is `connection: 'idle'` with no `end`. `start(
 | `timings` | How long each step took (see Timings) |
 | `end` | Set once at the end: `{ status: 'completed', reason? }` or `{ status: 'failed', reason?, error }` |
 
-`end.reason` is one of `caller_hangup`, `caller_inactive`, `caller_goodbye`, `caller_not_joined`, `agent_end`, `busy`, `no_answer`, `rejected`, `cancelled`, `provider_error`, `provider_key_failed`, `worker_error`, `max_duration`, `timeout`.
+`end.reason` is one of `caller_hangup`, `caller_inactive`, `caller_goodbye`, `caller_not_joined`, `connection_lost`, `agent_end`, `disclosure_failed`, `caller_objected`, `busy`, `no_answer`, `rejected`, `cancelled`, `provider_error`, `provider_key_failed`, `brain_error`, `worker_error`, `max_duration`, `timeout`, `client_end`. `brain_error` means the agent's own bot failed to reply.
 
 ## Status line
 

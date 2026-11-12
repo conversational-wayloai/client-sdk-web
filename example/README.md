@@ -113,7 +113,7 @@ Errors from the SDK (`WayloVoiceError.code`):
 | `SPEAKER_UNAVAILABLE` | The chosen speaker is gone or this browser can't choose one; the current speaker keeps playing the agent. |
 | `AGENT_TIMEOUT` | The agent didn't get ready in time. Try again. |
 | `AGENT_LEFT` | The agent left the call without ending it. Click **Talk** to start a new one. |
-| `AGENT_ERROR` | The agent hit an error and ended the call. `state.end.reason` says why, e.g. `worker_error`. |
+| `AGENT_ERROR` | The agent hit an error and ended the call. `state.end.reason` says why, e.g. `worker_error`, or `brain_error` when the agent's own bot failed to reply. |
 | `TRANSCRIPT_FAILED` | One caption line could not be read. The call goes on. |
 | `CANCELLED` | The call was stopped while it was starting. |
 | `ALREADY_STARTED` | Each `WayloVoice` starts once. Create a new `WayloVoice` for each call. |

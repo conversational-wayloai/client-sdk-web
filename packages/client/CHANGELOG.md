@@ -4,6 +4,10 @@ All notable changes to `@waylovoice/client` are listed here. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- `end.reason` covers every Waylo API end reason. `brain_error` (the agent's own bot failed), `client_end` and `disclosure_failed` used to be dropped, leaving `reason` unset.
+
 ### Changed
 
 - `homepage` points at https://docs.staging.app.waylovoice.ai.

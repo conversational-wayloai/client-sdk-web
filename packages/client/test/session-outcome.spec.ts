@@ -87,16 +87,21 @@ describe('SESSION_END_REASONS', () => {
       'caller_inactive',
       'caller_goodbye',
       'caller_not_joined',
+      'connection_lost',
       'agent_end',
+      'disclosure_failed',
+      'caller_objected',
       'busy',
       'no_answer',
       'rejected',
       'cancelled',
       'provider_error',
       'provider_key_failed',
+      'brain_error',
       'worker_error',
       'max_duration',
       'timeout',
+      'client_end',
     ]);
   });
 });

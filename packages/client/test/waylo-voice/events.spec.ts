@@ -314,6 +314,7 @@ describe('WayloVoice end of call', () => {
   it.each([
     ['caller_inactive', 'caller_inactive'],
     ['max_duration', 'max_duration'],
+    ['client_end', 'client_end'],
   ])('passes the completed reason %s through', async (reason, expected) => {
     const { call, room } = await activeCall();
 
@@ -332,7 +333,7 @@ describe('WayloVoice end of call', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it.each(['worker_error', 'provider_key_failed'])(
+  it.each(['worker_error', 'provider_key_failed', 'brain_error', 'disclosure_failed'])(
     'fails with AGENT_ERROR and reason %s on a failed verdict, with an error event first',
     async reason => {
       const { call, errors, room, states } = await activeCall();
